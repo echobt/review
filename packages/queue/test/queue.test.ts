@@ -36,3 +36,8 @@ test("events use evt.* queues; tenant keys are prefixed and traversal-safe", () 
   expect(tenantKey("t1", "blobs", "abc")).toBe("tenants/t1/blobs/abc");
   expect(() => tenantKey("t1", "../t2")).toThrow();
 });
+
+test("job ids containing ':' are rejected like BullMQ does", async () => {
+  const t = memoryTransport();
+  await expect(createProducer(t).send("score.requested", "t1", { reviewId: "r", datasetCaseId: "c", rubricVersion: "1.0.0" }, { jobId: "a:b" })).rejects.toThrow(/jobId/);
+});

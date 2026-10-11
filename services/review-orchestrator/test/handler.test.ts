@@ -1,6 +1,6 @@
 import { test, expect } from "vitest";
 import { Finding, TenantConfig, parseMessage, type Severity } from "@review/core";
-import { MemoryBudgetLedger, MockProvider, ModelRouter, RoutingPolicy, toolResult, type ChatRequest } from "@review/models";
+import { MemoryBudgetLedger, MockProvider, ModelRouter, ProviderError, RoutingPolicy, toolResult, type ChatRequest } from "@review/models";
 import { createTestDatabase } from "@review/db/testing";
 import { addFeedback, createReview, getReview, withTenant } from "@review/db";
 import { createProducer, memoryTransport, tenantKey } from "@review/queue";
@@ -113,4 +113,16 @@ test("end-to-end: review.requested -> findings persisted, GitHub payloads, event
   const again = await handle(deps, msg("rev2", key));
   expect(again.findings).toEqual([]);
   expect(github.checks[1]!.check.conclusion).toBe("success");
+});
+
+test("all review agents failing (no provider key) marks the review failed instead of 'No issues found'", async () => {
+  const { db, tenantId, store, github, deps, msg } = await setup();
+  const down = new ModelRouter(policy, { providers: [new MockProvider("mock", [new ProviderError("mock", "provider not configured (no API key)", 401)])],
+    budget: new MemoryBudgetLedger({ prUsd: 1, tenantMonthlyUsd: 10 }), sleep: async () => {} });
+  const key = tenantKey(tenantId, "diffs", "rev3.patch");
+  await store.put(key, Buffer.from(DIFF));
+  await withTenant(db, tenantId, (sql) => createReview(sql, tenantId, { id: "rev3", repositoryId: "repo", diffObjectKey: key }));
+  await expect(handle({ ...deps, executor: (req: Parameters<typeof runAgent>[1]) => runAgent({ router: down, db }, req) }, msg("rev3", key))).rejects.toThrow(/review agents failed/);
+  expect((await withTenant(db, tenantId, (sql) => getReview(sql, "rev3")))!.status).toBe("failed");
+  expect(github.reviews).toHaveLength(0);
 });

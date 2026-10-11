@@ -45,6 +45,8 @@ export async function runReview(deps: OrchestratorDeps, input: ReviewInput): Pro
     const files = filterFiles(parseDiff(input.diff), config.pathFilters);
     const units = planReview(files, config);
     const results = await Promise.all(units.map((u) => deps.executor({ tenantId, reviewId, kind: u.kind, config, context: { files: u.files, rules: u.rules } })));
+    // Every review agent failing (e.g. no provider configured, outage) must not read as "No issues found".
+    if (results.length && results.every((r) => r.status === "failed")) throw new Error(`all ${results.length} review agents failed`);
     let usage: Usage = { inputTokens: 0, outputTokens: 0, costUsd: 0, latencyMs: 0 };
     for (const r of results) usage = addUsage(usage, r.usage);
     const candidates = results.flatMap((r) => r.drafts.map((d) => Finding.parse({ ...d, id: randomUUID(), reviewId, source: "llm" })));
@@ -52,14 +54,15 @@ export async function runReview(deps: OrchestratorDeps, input: ReviewInput): Pro
     const kept = mergeFindings(candidates, { config, suppressed });
     const findings = kept.map((k) => k.finding);
 
-    let summary = fallbackSummary(findings, files.length);
     const partial = results.some((r) => r.status !== "completed");
+    let summary = fallbackSummary(findings, files.length);
     if (findings.length || files.length) {
       const notes = findings.map((f) => `- [${f.severity}] ${f.location.path}:${f.location.startLine} ${f.title}`).join("\n");
       const s = await deps.executor({ tenantId, reviewId, kind: "summarizer", config, context: { files: files.map((f) => ({ path: f.path, patch: "" })), rules: [], notes } });
       usage = addUsage(usage, s.usage);
       if (s.status === "completed" && s.summary) summary = s.summary;
     }
+    if (partial) summary += `\n\nPartial review: ${results.filter((r) => r.status !== "completed").length} of ${results.length} agents did not complete (budget or provider failure).`;
 
     const pr = input.pullRequest;
     const posted = Boolean(pr && deps.github);
@@ -71,8 +74,8 @@ export async function runReview(deps: OrchestratorDeps, input: ReviewInput): Pro
       await insertFindings(sql, tenantId, kept.map((k) => ({ finding: k.finding, fingerprint: k.fingerprint, posted })));
       await updateReview(sql, reviewId, { status: "completed", summary, usage });
     });
-    for (const finding of findings) await deps.producer.send("finding.created", tenantId, { finding }, { jobId: `finding:${finding.id}` });
-    await deps.producer.send("review.completed", tenantId, { reviewId, findingCount: findings.length, usage }, { jobId: `review-completed:${reviewId}` });
+    for (const finding of findings) await deps.producer.send("finding.created", tenantId, { finding }, { jobId: `finding-${finding.id}` });
+    await deps.producer.send("review.completed", tenantId, { reviewId, findingCount: findings.length, usage }, { jobId: `review-completed-${reviewId}` });
     return { findings, summary, usage, partial };
   } catch (e) {
     await tx((sql) => updateReview(sql, reviewId, { status: "failed" }));

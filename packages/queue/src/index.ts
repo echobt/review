@@ -45,7 +45,7 @@ export function bullmqTransport(connection: ConnectionOptions, prefix = "review"
   return {
     async add(q, msg, opts) {
       await get(q).add(q, msg, {
-        jobId: opts.jobId, attempts: 5, backoff: { type: "exponential", delay: 2000 },
+        jobId: assertJobId(opts.jobId), attempts: 5, backoff: { type: "exponential", delay: 2000 },
         removeOnComplete: 1000, removeOnFail: 5000, ...(opts.delayMs ? { delay: opts.delayMs } : {}),
       });
     },
@@ -85,6 +85,7 @@ export function memoryTransport() {
   const t: QueueTransport & { sent: typeof sent; failures: typeof failures; drain(): Promise<void> } = {
     sent, failures,
     async add(q, msg, opts) {
+      assertJobId(opts.jobId);
       if (seen.has(`${q}/${opts.jobId}`)) return; // BullMQ semantics: duplicate jobId is a no-op
       seen.add(`${q}/${opts.jobId}`);
       sent.push({ queue: q, msg });
@@ -101,6 +102,12 @@ export function memoryTransport() {
     drain: () => new Promise<void>((r) => { if (inflight === 0) r(); else idle.push(r); }),
   };
   return t;
+}
+
+/** BullMQ rejects custom job ids containing ':' (its key separator). Enforced by both transports so tests catch it. */
+export function assertJobId(jobId: string): string {
+  if (!jobId || jobId.includes(":")) throw new Error(`invalid jobId (empty or contains ':'): ${jobId}`);
+  return jobId;
 }
 
 /** Typed producer: validates the full envelope with zod before anything leaves the process. */
