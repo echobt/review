@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Scoring rubric",
+  "type": "object",
+  "required": [
+    "version",
+    "matching",
+    "severityWeights",
+    "composite",
+    "fpPerPrCap",
+    "minRuns"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "matching": {
+      "type": "object",
+      "required": [
+        "lineTolerance",
+        "maxSpanLines",
+        "requireCategory"
+      ],
+      "properties": {
+        "lineTolerance": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxSpanLines": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Findings spanning more lines than this (endLine - startLine + 1) never match and count as false positives."
+        },
+        "requireCategory": {
+          "type": "boolean"
+        }
+      }
+    },
+    "severityWeights": {
+      "type": "object",
+      "required": [
+        "info",
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "info": {
+          "type": "number",
+          "minimum": 0
+        },
+        "low": {
+          "type": "number",
+          "minimum": 0
+        },
+        "medium": {
+          "type": "number",
+          "minimum": 0
+        },
+        "high": {
+          "type": "number",
+          "minimum": 0
+        },
+        "critical": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "composite": {
+      "type": "object",
+      "description": "Exponent weights of the weighted geometric mean: score = 100 * SWR^(a/s) * Precision^(b/s) * fpTerm^(c/s), s = a+b+c.",
+      "required": [
+        "severityWeightedRecall",
+        "precision",
+        "fpPenalty"
+      ],
+      "properties": {
+        "severityWeightedRecall": {
+          "type": "number",
+          "minimum": 0
+        },
+        "precision": {
+          "type": "number",
+          "minimum": 0
+        },
+        "fpPenalty": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "fpPerPrCap": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "minRuns": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

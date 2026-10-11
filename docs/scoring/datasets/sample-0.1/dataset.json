@@ -1,0 +1,73 @@
+{
+  "version": "sample-0.1",
+  "cases": [
+    {
+      "id": "sample-001",
+      "repo": "https://github.com/example/synthetic-ts",
+      "baseSha": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "headSha": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
+      "language": "typescript",
+      "license": "MIT",
+      "provenance": "injected",
+      "bugs": [
+        {
+          "id": "sample-001-b1",
+          "category": "bug",
+          "severity": "high",
+          "location": {
+            "path": "src/cart.ts",
+            "startLine": 42,
+            "endLine": 44
+          },
+          "description": "Off-by-one: loop uses <= over items.length, reads undefined"
+        }
+      ]
+    },
+    {
+      "id": "sample-002",
+      "repo": "https://github.com/example/synthetic-ts",
+      "baseSha": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+      "headSha": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+      "language": "typescript",
+      "license": "MIT",
+      "provenance": "injected",
+      "bugs": [
+        {
+          "id": "sample-002-b1",
+          "category": "security",
+          "severity": "critical",
+          "location": {
+            "path": "src/db/users.ts",
+            "startLine": 17,
+            "endLine": 17
+          },
+          "description": "SQL built by string concatenation from request param",
+          "cwe": [
+            "CWE-89"
+          ]
+        },
+        {
+          "id": "sample-002-b2",
+          "category": "bug",
+          "severity": "medium",
+          "location": {
+            "path": "src/api/users.ts",
+            "startLine": 30,
+            "endLine": 33
+          },
+          "description": "Caller not updated for renamed return field (cross-file)"
+        }
+      ]
+    },
+    {
+      "id": "sample-003",
+      "repo": "https://github.com/example/synthetic-py",
+      "baseSha": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
+      "headSha": "b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3",
+      "language": "python",
+      "license": "Apache-2.0",
+      "provenance": "injected",
+      "bugs": []
+    }
+  ]
+}

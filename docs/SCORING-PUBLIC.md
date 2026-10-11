@@ -1,0 +1,69 @@
+# Public, transparent scoring system
+
+Goal: anyone can check, reproduce, and improve how AI code reviewers (ours included) are measured. The canonical home is the public repo `github.com/echobt/code-review-scoring`. Its initial contents live in [`docs/scoring/`](scoring/) in this repo until they are pushed (see *Publication status*).
+
+**FACT** = written down and tested here (`packages/scoring-client/test/score.test.ts` runs the reference scorer on these exact files). **PROPOSAL** = how it should work once it is public.
+
+## 1. Rubric v1.0.0 (FACT: `docs/scoring/rubric/rubric.v1.0.0.json`)
+
+| Metric | Definition |
+|---|---|
+| Match | A submitted finding matches a labelled bug when it is in the same `path` and its line range overlaps the bug's `[startLine-3, endLine+3]` (`lineTolerance: 3`). Category does not need to match in v1 (`requireCategory: false`). Matching is one-to-one and greedy, by descending `confidence`. A finding whose range spans more than `maxSpanLines: 10` lines (`endLine - startLine + 1`), or whose `endLine < startLine`, never matches and counts as a false positive, so whole-file ranges cannot blanket-cover bugs. |
+| Precision | TP / (TP + FP), over all findings in the dataset. If no findings are submitted, precision is 0 when the dataset has labelled bugs, and 1 only when it has none |
+| Recall | TP / number of labelled bugs |
+| Severity-weighted recall (SWR) | sum of matched-bug weights / sum of all bug weights, with weights info 0, low 1, medium 2, high 4, critical 8 |
+| FP per PR | FP / number of cases. Clean cases (`bugs: []`) exist so that noisy systems get penalised |
+| Latency | p50 and p95 of per-case `latencyMs`, wall clock from request to final findings |
+| Cost | mean `costUsd` per case, as reported by the submitter (provider bill or token count x list price) |
+| Reproducibility | at least `minRuns` = 3 independent full runs; reported score = mean, `scoreStdDev` = population std dev |
+
+**Composite score (0-100)** = 100 x SWR^0.5 x Precision^0.3 x (1 − min(FPperPR / 3, 1))^0.2 (a weighted geometric mean; the exponents are `composite` / their sum).
+
+Every term can drive the score to 0: a reviewer that reports nothing (SWR 0) scores 0, and a reviewer that floods findings (precision near 0, or FP per PR at or above `fpPerPrCap`) also scores near 0. Neither silence nor spam can bank credit from the other terms. A perfect reviewer scores 100. Example: SWR 0.4 with precision 0.5 and 1 FP/PR scores about 47, while tiling every changed file with 10-line findings scores 0.
+
+Latency and cost are **reported next to the score, not folded into it**, so readers can make their own trade-offs. The normative implementation is `scoreRun` / `scoreSubmission` in `@review/scoring-client`.
+
+Why this shape (PROPOSAL rationale, see `research/05-scoring.md`): recall weighted by severity rewards catching what matters, precision and the FP cap punish noise (the main reason reviewers get switched off), and multiple runs expose LLM non-determinism.
+
+## 2. Dataset format (FACT: `docs/scoring/schema/dataset.schema.json`, JSON Schema 2020-12)
+```json
+{ "version": "sample-0.1",
+  "cases": [{ "id": "sample-002", "repo": "https://github.com/...", "baseSha": "<40 hex>", "headSha": "<40 hex>",
+              "language": "typescript", "license": "MIT", "provenance": "injected|real-fix-commit|cve",
+              "bugs": [{ "id": "...", "category": "security", "severity": "critical",
+                         "location": { "path": "src/db/users.ts", "startLine": 17, "endLine": 17 },
+                         "description": "...", "cwe": ["CWE-89"] }] }] }
+```
+`docs/scoring/datasets/sample-0.1/` is a **synthetic placeholder** (3 cases, fake SHAs) that exists only to exercise the harness. It is not a benchmark.
+
+PROPOSAL for dataset v1: about 300 cases, collected three ways: (a) real bug-fix commits from permissively licensed repos, reverted to recreate the buggy PR (SWE-bench-style mining), (b) CVE fix commits, (c) mutation-injected bugs. Roughly 20% should be clean PRs. Each case gets two independent labellers plus an adjudicator, and inter-annotator agreement is published. 20% of the cases stay in a **held-out** split, scored only by maintainers, to limit overfitting.
+
+## 3. Submissions (FACT: `schema/submission.schema.json`, example in `submissions/example/`)
+A submission records the system (`name`, `version`, `model`), `rubricVersion`, `datasetVersion`, the exact `harness.commit` and `harness.command`, and `runs[]` (>= `minRuns`) of per-case `findings`, `latencyMs`, and `costUsd`.
+
+Process (PROPOSAL):
+1. Fork the repo, run the harness against the public split, and add `submissions/<system>/<version>/submission.json`.
+2. Open a PR. CI validates the file against the schema, re-scores it with the reference scorer, and posts the score as a comment. Self-reported numbers are never trusted.
+3. Entries are `verified: false` by default. They become `verified: true` once a maintainer re-runs the harness command (or the vendor gives API access) and gets the score within ±2·stdDev, and the held-out split has been scored.
+
+## 4. Leaderboard (FACT: `schema/leaderboard.schema.json`, `leaderboard/leaderboard.json`)
+`leaderboard.json` is **generated by CI from `submissions/`**. Nobody edits it by hand. Each entry has a rank, the system, the rubric and dataset versions, score ± stdDev, P, R, SWR, FP/PR, p50 latency, cost/PR, `verified`, and `submissionPath`. There is one board per `(rubricVersion, datasetVersion)`, and scores are never compared across versions.
+
+## 5. Governance and versioning (PROPOSAL)
+- The rubric follows semver. Any change to how a score is computed is a **major** bump and starts a new board. New metadata fields are **minor**. Doc fixes are **patch**.
+- Changes go through PRs that require an RFC issue, a 14-day comment window, and two maintainer approvals. The diff must include re-scored historical submissions so the impact is visible.
+- License: Apache-2.0 for code, CC-BY-4.0 for labels. Each dataset case keeps its upstream license.
+- Conflict of interest: our own system is listed like every other entry, with no special treatment. Maintainers from other organisations are invited.
+
+## 6. Repo layout (`docs/scoring/` = initial public repo contents)
+```
+README.md  CONTRIBUTING.md
+rubric/rubric.v1.0.0.json
+schema/{dataset,submission,rubric,leaderboard}.schema.json
+datasets/sample-0.1/dataset.json
+submissions/example/submission.json
+leaderboard/leaderboard.json
+```
+
+## Publication status (FACT, 2026-10-11)
+`git ls-remote https://github.com/echobt/code-review-scoring` resolves (HEAD `2c54707`). However, `gh repo view` reports **visibility PRIVATE**. The requirement is that this repo is PUBLIC, so **nothing was pushed**. A dry-run of the push would add the files above under the repo root as one commit, `feat: rubric v1.0.0, dataset/submission/leaderboard schemas, sample dataset`. Before pushing, an owner must make the repo public, or confirm on purpose that it should stay private for now.

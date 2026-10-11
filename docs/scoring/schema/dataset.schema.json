@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/echobt/code-review-scoring/schema/dataset.schema.json",
+  "title": "Code review scoring dataset",
+  "type": "object",
+  "required": [
+    "version",
+    "cases"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string"
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "repo",
+          "baseSha",
+          "headSha",
+          "language",
+          "license",
+          "bugs",
+          "provenance"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "repo": {
+            "type": "string",
+            "format": "uri"
+          },
+          "baseSha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "headSha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "language": {
+            "type": "string"
+          },
+          "license": {
+            "type": "string",
+            "minLength": 1,
+            "description": "SPDX id of the source repo; must permit redistribution of the diff"
+          },
+          "provenance": {
+            "enum": [
+              "real-fix-commit",
+              "injected",
+              "cve"
+            ]
+          },
+          "bugs": {
+            "type": "array",
+            "description": "Empty array = clean PR, used to measure false positives",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "category",
+                "severity",
+                "location",
+                "description"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "category": {
+                  "enum": [
+                    "bug",
+                    "security",
+                    "performance",
+                    "maintainability",
+                    "style",
+                    "test",
+                    "docs"
+                  ]
+                },
+                "severity": {
+                  "enum": [
+                    "info",
+                    "low",
+                    "medium",
+                    "high",
+                    "critical"
+                  ]
+                },
+                "location": {
+                  "type": "object",
+                  "required": [
+                    "path",
+                    "startLine",
+                    "endLine"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "startLine": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "endLine": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  }
+                },
+                "description": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "cwe": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^CWE-\\d+$"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
