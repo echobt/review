@@ -4,7 +4,8 @@ import { FindingCategory, Severity } from "@review/core";
 // Mirrors the JSON Schemas in docs/scoring/ (public repo echobt/code-review-scoring).
 
 const Semver = z.string().regex(/^\d+\.\d+\.\d+$/);
-const Range = z.object({ path: z.string().min(1), startLine: z.number().int().positive(), endLine: z.number().int().positive() });
+const Range = z.object({ path: z.string().min(1), startLine: z.number().int().positive(), endLine: z.number().int().positive() })
+  .refine((r) => r.endLine >= r.startLine, { message: "endLine must be >= startLine" });
 
 export const LabelledBug = z.object({
   id: z.string().min(1),
@@ -61,7 +62,7 @@ export type Submission = z.infer<typeof Submission>;
 
 export const Rubric = z.object({
   version: Semver,
-  matching: z.object({ lineTolerance: z.number().int().nonnegative(), requireCategory: z.boolean() }),
+  matching: z.object({ lineTolerance: z.number().int().nonnegative(), maxSpanLines: z.number().int().positive(), requireCategory: z.boolean() }),
   severityWeights: z.record(Severity, z.number().nonnegative()),
   composite: z.object({ severityWeightedRecall: z.number(), precision: z.number(), fpPenalty: z.number() }),
   fpPerPrCap: z.number().positive(),

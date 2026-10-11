@@ -18,7 +18,9 @@ export function scoreRun(dataset: Dataset, results: CaseResult[], rubric: Rubric
     for (const b of c.bugs) wTotal += rubric.severityWeights[b.severity] ?? 0;
     const unmatched = new Set(c.bugs);
     for (const f of [...(r?.findings ?? [])].sort((a, b) => b.confidence - a.confidence)) {
-      const hit = [...unmatched].find((b) => overlaps(b.location, f.location, rubric.matching.lineTolerance)
+      // Oversized (e.g. whole-file) or inverted ranges never match, so they cannot blanket-cover labelled bugs.
+      const span = f.location.endLine - f.location.startLine + 1;
+      const hit = span < 1 || span > rubric.matching.maxSpanLines ? undefined : [...unmatched].find((b) => overlaps(b.location, f.location, rubric.matching.lineTolerance)
         && (!rubric.matching.requireCategory || b.category === f.category));
       if (hit) { unmatched.delete(hit); tp++; wMatched += rubric.severityWeights[hit.severity] ?? 0; } else fp++;
     }

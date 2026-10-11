@@ -8,7 +8,7 @@ Goal: anyone can check, reproduce, and improve how AI code reviewers (ours inclu
 
 | Metric | Definition |
 |---|---|
-| Match | A submitted finding matches a labelled bug when it is in the same `path` and its line range overlaps the bug's `[startLine-3, endLine+3]` (`lineTolerance: 3`). Category does not need to match in v1 (`requireCategory: false`). Matching is one-to-one and greedy, by descending `confidence`. |
+| Match | A submitted finding matches a labelled bug when it is in the same `path` and its line range overlaps the bug's `[startLine-3, endLine+3]` (`lineTolerance: 3`). Category does not need to match in v1 (`requireCategory: false`). Matching is one-to-one and greedy, by descending `confidence`. A finding whose range spans more than `maxSpanLines: 10` lines (`endLine - startLine + 1`), or whose `endLine < startLine`, never matches and counts as a false positive, so whole-file ranges cannot blanket-cover bugs. |
 | Precision | TP / (TP + FP), over all findings in the dataset. If no findings are submitted, precision is 0 when the dataset has labelled bugs, and 1 only when it has none |
 | Recall | TP / number of labelled bugs |
 | Severity-weighted recall (SWR) | sum of matched-bug weights / sum of all bug weights, with weights info 0, low 1, medium 2, high 4, critical 8 |

@@ -48,6 +48,17 @@ test("ScoringClient fetches and validates rubric from the configured base", asyn
   assert.deepEqual(seen, ["https://example.test/repo/rubric/rubric.v1.0.0.json"]);
 });
 
+test("whole-file ranges cannot blanket-match bugs (span > maxSpanLines counts as FP)", () => {
+  const blanket = dataset.cases.map((c) => ({ caseId: c.id, latencyMs: 1, costUsd: 0,
+    findings: [...new Set(c.bugs.map((b) => b.location.path))].map((path) => ({
+      category: "bug" as const, severity: "high" as const, location: { path, startLine: 1, endLine: 1_000_000_000 }, title: "x", confidence: 1 })) }));
+  const r = scoreRun(dataset, blanket, rubric);
+  assert.equal(r.metrics.recall, 0);
+  assert.equal(r.score, 0);
+  assert.throws(() => Submission.parse({ ...sample, runs: [{ results: [{ caseId: "x", latencyMs: 1, costUsd: 0,
+    findings: [{ category: "bug", severity: "low", location: { path: "a.ts", startLine: 9, endLine: 2 }, title: "t" }] }] }] }), /endLine/);
+});
+
 test("empty submission scores 0 (cannot bank precision/FP credit by staying silent)", () => {
   const empty = dataset.cases.map((c) => ({ caseId: c.id, latencyMs: 1, costUsd: 0, findings: [] }));
   const r = scoreRun(dataset, empty, rubric);

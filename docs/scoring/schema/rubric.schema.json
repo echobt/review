@@ -19,12 +19,18 @@
       "type": "object",
       "required": [
         "lineTolerance",
+        "maxSpanLines",
         "requireCategory"
       ],
       "properties": {
         "lineTolerance": {
           "type": "integer",
           "minimum": 0
+        },
+        "maxSpanLines": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Findings spanning more lines than this (endLine - startLine + 1) never match and count as false positives."
         },
         "requireCategory": {
           "type": "boolean"

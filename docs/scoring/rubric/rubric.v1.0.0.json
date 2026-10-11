@@ -2,6 +2,7 @@
   "version": "1.0.0",
   "matching": {
     "lineTolerance": 3,
+    "maxSpanLines": 10,
     "requireCategory": false
   },
   "severityWeights": {
