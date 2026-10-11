@@ -39,9 +39,11 @@ export function scoreRun(dataset: Dataset, results: CaseResult[], rubric: Rubric
   };
   const k = rubric.composite;
   const fpTerm = 1 - Math.min(falsePositivesPerPr / rubric.fpPerPrCap, 1);
-  // Noise terms are scaled by SWR so a silent reviewer cannot bank precision/FP credit (empty submission = 0).
-  const score = 100 * severityWeightedRecall * (k.severityWeightedRecall + k.precision * precision + k.fpPenalty * fpTerm)
-    / (k.severityWeightedRecall + k.precision + k.fpPenalty);
+  // Weighted geometric mean: every term can drive the score to 0, so neither silence (SWR=0) nor flooding
+  // (precision -> 0, FP/PR >= cap) can bank credit from the other terms.
+  const kSum = k.severityWeightedRecall + k.precision + k.fpPenalty;
+  const score = 100 * severityWeightedRecall ** (k.severityWeightedRecall / kSum)
+    * precision ** (k.precision / kSum) * fpTerm ** (k.fpPenalty / kSum);
   return { metrics, score };
 }
 

@@ -59,6 +59,21 @@ test("whole-file ranges cannot blanket-match bugs (span > maxSpanLines counts as
     findings: [{ category: "bug", severity: "low", location: { path: "a.ts", startLine: 9, endLine: 2 }, title: "t" }] }] }] }), /endLine/);
 });
 
+test("flooding with in-span findings scores far below a modest honest reviewer", () => {
+  const tile = dataset.cases.map((c) => ({ caseId: c.id, latencyMs: 1, costUsd: 0,
+    findings: [...new Set(c.bugs.map((b) => b.location.path))].flatMap((path) => Array.from({ length: 20 }, (_, i) => ({
+      category: "bug" as const, severity: "high" as const, location: { path, startLine: i * 10 + 1, endLine: i * 10 + 10 }, title: "x", confidence: 1 }))) }));
+  const spam = scoreRun(dataset, tile, rubric);
+  assert.equal(spam.metrics.recall, 1);
+  // Honest: first labelled bug per case plus one FP per buggy case.
+  const honest = dataset.cases.map((c) => ({ caseId: c.id, latencyMs: 1, costUsd: 0, findings: c.bugs.slice(0, 1).flatMap((b) => [
+    { category: b.category, severity: b.severity, location: b.location, title: "t", confidence: 0.9 },
+    { category: "bug" as const, severity: "low" as const, location: { path: "noise.ts", startLine: 1, endLine: 1 }, title: "n", confidence: 0.1 }]) }));
+  const h = scoreRun(dataset, honest, rubric);
+  assert.ok(spam.score < 10, `spam scored ${spam.score}`);
+  assert.ok(h.score > spam.score + 20, `honest ${h.score} vs spam ${spam.score}`);
+});
+
 test("empty submission scores 0 (cannot bank precision/FP credit by staying silent)", () => {
   const empty = dataset.cases.map((c) => ({ caseId: c.id, latencyMs: 1, costUsd: 0, findings: [] }));
   const r = scoreRun(dataset, empty, rubric);

@@ -64,7 +64,7 @@ export const Rubric = z.object({
   version: Semver,
   matching: z.object({ lineTolerance: z.number().int().nonnegative(), maxSpanLines: z.number().int().positive(), requireCategory: z.boolean() }),
   severityWeights: z.record(Severity, z.number().nonnegative()),
-  composite: z.object({ severityWeightedRecall: z.number(), precision: z.number(), fpPenalty: z.number() }),
+  composite: z.object({ severityWeightedRecall: z.number().nonnegative(), precision: z.number().nonnegative(), fpPenalty: z.number().nonnegative() }),
   fpPerPrCap: z.number().positive(),
   minRuns: z.number().int().positive(),
 });

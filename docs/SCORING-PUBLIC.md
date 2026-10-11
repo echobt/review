@@ -17,9 +17,9 @@ Goal: anyone can check, reproduce, and improve how AI code reviewers (ours inclu
 | Cost | mean `costUsd` per case, as reported by the submitter (provider bill or token count x list price) |
 | Reproducibility | at least `minRuns` = 3 independent full runs; reported score = mean, `scoreStdDev` = population std dev |
 
-**Composite score (0-100)** = 100 x SWR x (0.5 + 0.3·Precision + 0.2·(1 − min(FPperPR / 3, 1))) / 1.0.
+**Composite score (0-100)** = 100 x SWR^0.5 x Precision^0.3 x (1 − min(FPperPR / 3, 1))^0.2 (a weighted geometric mean; the exponents are `composite` / their sum).
 
-The precision and FP terms are multiplied by SWR, so a reviewer that reports nothing scores 0. It cannot collect the noise credit by staying silent. A perfect reviewer scores 100.
+Every term can drive the score to 0: a reviewer that reports nothing (SWR 0) scores 0, and a reviewer that floods findings (precision near 0, or FP per PR at or above `fpPerPrCap`) also scores near 0. Neither silence nor spam can bank credit from the other terms. A perfect reviewer scores 100. Example: SWR 0.4 with precision 0.5 and 1 FP/PR scores about 47, while tiling every changed file with 10-line findings scores 0.
 
 Latency and cost are **reported next to the score, not folded into it**, so readers can make their own trade-offs. The normative implementation is `scoreRun` / `scoreSubmission` in `@review/scoring-client`.
 

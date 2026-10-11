@@ -72,6 +72,7 @@
     },
     "composite": {
       "type": "object",
+      "description": "Exponent weights of the weighted geometric mean: score = 100 * SWR^(a/s) * Precision^(b/s) * fpTerm^(c/s), s = a+b+c.",
       "required": [
         "severityWeightedRecall",
         "precision",
@@ -79,13 +80,16 @@
       ],
       "properties": {
         "severityWeightedRecall": {
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         "precision": {
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         "fpPenalty": {
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         }
       }
     },
