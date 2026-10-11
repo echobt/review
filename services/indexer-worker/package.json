@@ -1,21 +1,25 @@
 {
   "name": "@review/indexer-worker",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "Parse changed files with tree-sitter, update symbol graph + embeddings incrementally (phase 1).",
   "type": "module",
+  "license": "Apache-2.0",
+  "private": true,
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
-    "test": "echo 'no tests (skeleton handler only)'",
-    "start": "node --experimental-strip-types src/main.ts"
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run --passWithNoTests",
+    "start": "node src/main.ts"
   },
   "dependencies": {
     "@review/core": "workspace:*",
     "@review/service-common": "workspace:*",
+    "@review/queue": "workspace:*",
+    "@review/telemetry": "workspace:*",
     "zod": "^4.1.0"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
-    "@types/node": "^24.0.0"
+    "@types/node": "^24.0.0",
+    "vitest": "^5.0.3"
   }
 }

@@ -4,21 +4,23 @@
   "type": "module",
   "packageManager": "pnpm@10.34.5",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
-    "typecheck": "pnpm -r --workspace-concurrency=1 typecheck",
-    "test": "pnpm -r --workspace-concurrency=1 test",
-    "validate:model": "node --experimental-strip-types scripts/validate-model.ts",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r build",
+    "test": "pnpm -r test",
+    "validate:model": "node scripts/validate-model.ts",
     "check:mermaid": "node scripts/check-mermaid.mjs"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
-    "@types/node": "^24.0.0"
+    "@types/node": "^24.0.0",
+    "vitest": "^5.0.3"
   },
   "dependencies": {
     "@review/core": "workspace:*",
-    "@review/service-common": "workspace:*",
+    "@review/models": "workspace:*",
     "zod": "^4.1.0"
   }
 }

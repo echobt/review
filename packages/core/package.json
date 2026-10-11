@@ -1,6 +1,6 @@
 {
   "name": "@review/core",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Shared types and zod schemas for the review platform. No I/O.",
   "type": "module",
   "license": "Apache-2.0",
@@ -11,14 +11,15 @@
     "src"
   ],
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
-    "test": "node --test test/*.test.ts"
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
   },
   "dependencies": {
     "zod": "^4.1.0"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
-    "@types/node": "^24.0.0"
+    "@types/node": "^24.0.0",
+    "vitest": "^5.0.3"
   }
 }

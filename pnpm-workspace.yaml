@@ -1,3 +1,5 @@
 packages:
   - packages/*
   - services/*
+onlyBuiltDependencies:
+  - msgpackr-extract

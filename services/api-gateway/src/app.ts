@@ -37,7 +37,7 @@ export function buildApp(deps: { enqueue: Enqueue; authenticate: Authenticate })
     const body = CreateIndexRequest.safeParse(req.body);
     if (!body.success) return reply.code(400).send(err("invalid_request", body.error.message));
     const id = randomUUID();
-    await deps.enqueue("index.requested", tenant(req), { repositoryId: body.data.repositoryId, commitSha: body.data.commitSha });
+    await deps.enqueue("index.requested", tenant(req), { indexId: id, repositoryId: body.data.repositoryId, commitSha: body.data.commitSha, mode: body.data.incremental ? "incremental" : "full" });
     return reply.code(202).send({ id, repositoryId: body.data.repositoryId, commitSha: body.data.commitSha, status: "pending", languages: [],
       fileCount: 0, symbolCount: 0, chunkCount: 0, embeddingModel: "unset" });
   });

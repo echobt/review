@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PullRequestRef, Review, RepoIndex, TestGenRun, ScoreReport, Finding } from "./schemas.ts";
+import { PullRequestRef, Review, RepoIndex, TestGenRun, ScoreReport, Finding, Feedback, FeedbackVerdict, TenantConfig } from "./schemas.ts";
 
 // Public REST API v1 request/response contracts (api-gateway <-> @review/client).
 
@@ -38,6 +38,16 @@ export const ScoreRequest = z.object({
 });
 export type ScoreRequest = z.infer<typeof ScoreRequest>;
 
+export const CreateFeedbackRequest = z.object({
+  verdict: FeedbackVerdict,
+  reason: z.string().max(2000).optional(),
+  actor: z.string().max(200).optional(),
+});
+export type CreateFeedbackRequest = z.infer<typeof CreateFeedbackRequest>;
+
+export const FindingList = z.object({ findings: z.array(Finding) });
+export type FindingList = z.infer<typeof FindingList>;
+
 export const ApiError = z.object({ error: z.object({ code: z.string(), message: z.string() }) });
 export type ApiError = z.infer<typeof ApiError>;
 
@@ -50,7 +60,10 @@ export const ReviewEvent = z.discriminatedUnion("type", [
 ]);
 export type ReviewEvent = z.infer<typeof ReviewEvent>;
 
-export { Review as ReviewResponse, RepoIndex as IndexResponse, TestGenRun as TestGenResponse, ScoreReport as ScoreResponse };
+export { Feedback as FeedbackResponse, TenantConfig as TenantConfigResponse, Review as ReviewResponse, RepoIndex as IndexResponse, TestGenRun as TestGenResponse, ScoreReport as ScoreResponse };
+
+// Re-exported for gateway/client convenience.
+export { TenantConfig as TenantConfigBody };
 
 /** Route table shared by gateway and client so paths cannot drift. */
 export const routes = {
@@ -62,5 +75,11 @@ export const routes = {
   createTestGen: { method: "POST", path: "/v1/testgen" },
   getTestGen: { method: "GET", path: "/v1/testgen/:id" },
   score: { method: "POST", path: "/v1/scores" },
+  getScore: { method: "GET", path: "/v1/scores/:id" },
+  listFindings: { method: "GET", path: "/v1/reviews/:id/findings" },
+  createFeedback: { method: "POST", path: "/v1/findings/:id/feedback" },
+  getConfig: { method: "GET", path: "/v1/config" },
+  putConfig: { method: "PUT", path: "/v1/config" },
+  githubWebhook: { method: "POST", path: "/webhooks/github" },
   health: { method: "GET", path: "/healthz" },
 } as const;

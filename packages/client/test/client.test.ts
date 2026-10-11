@@ -1,4 +1,4 @@
-import { test, after } from "node:test";
+import { test, afterAll } from "vitest";
 import assert from "node:assert/strict";
 import { createServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -23,7 +23,7 @@ const server = createServer(async (req: IncomingMessage, res) => {
 });
 await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
 const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-after(() => server.close());
+afterAll(() => server.close());
 
 const client = new ReviewClient({ baseUrl, apiKey: "test-key" });
 

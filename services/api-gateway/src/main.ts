@@ -1,14 +1,17 @@
-import { loadConfig, connectionFromUrl, makeProducer } from "@review/service-common";
-import { QUEUE_NAMES, type QueueName } from "@review/core";
+import { bullmqTransport, connectionFromUrl, createProducer, memoryTransport } from "@review/queue";
+import { createLogger, initTelemetry } from "@review/telemetry";
+import { loadConfig } from "@review/service-common";
 import { buildApp } from "./app.ts";
 
 const cfg = loadConfig();
-const conn = connectionFromUrl(cfg.REDIS_URL);
-const producers = Object.fromEntries(QUEUE_NAMES.map((q) => [q, makeProducer(q, conn)])) as { [Q in QueueName]: ReturnType<typeof makeProducer<Q>> };
+initTelemetry({ serviceName: "api-gateway", ...(cfg.OTEL_EXPORTER_OTLP_ENDPOINT ? { otlpEndpoint: cfg.OTEL_EXPORTER_OTLP_ENDPOINT } : {}) });
+const log = createLogger("api-gateway", cfg.LOG_LEVEL);
+const transport = cfg.RUNTIME_MODE === "memory" ? memoryTransport() : bullmqTransport(connectionFromUrl(cfg.REDIS_URL));
+const producer = createProducer(transport);
 const app = buildApp({
-  enqueue: async (q, tenantId, payload) => { await producers[q].send(tenantId, payload as never); },
-  // Skeleton: dev-only auth. Real impl hashes the key and looks it up in api_keys (ADR-0007).
+  enqueue: async (q, tenantId, payload) => { await producer.send(q, tenantId, payload as never); },
+  // Dev-only auth until the DB-backed store is wired (lane: review).
   authenticate: async (key) => (process.env.DEV_API_KEY && key === process.env.DEV_API_KEY ? "dev-tenant" : undefined),
 });
 await app.listen({ port: cfg.PORT, host: "0.0.0.0" });
-console.log(`api-gateway listening on :${cfg.PORT}`);
+log.info("api-gateway listening", { port: cfg.PORT });

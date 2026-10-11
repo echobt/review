@@ -1,4 +1,4 @@
-# Local dev only. No secrets: credentials below are throwaway local defaults.
+# Local dev stack only. No secrets: credentials below are throwaway local defaults.
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -7,32 +7,32 @@ services:
       POSTGRES_PASSWORD: review
       POSTGRES_DB: review
     ports: ["5432:5432"]
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./services/api-gateway/sql:/docker-entrypoint-initdb.d:ro
+    volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U review"]
       interval: 5s
       retries: 10
-  redis:
+  valkey:
     image: valkey/valkey:8-alpine
     ports: ["6379:6379"]
+    command: ["valkey-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     healthcheck:
       test: ["CMD", "valkey-cli", "ping"]
       interval: 5s
       retries: 10
-  api:
-    image: node:24-alpine
-    working_dir: /app
-    command: sh -c "corepack enable && pnpm install --frozen-lockfile=false && node --experimental-strip-types services/api-gateway/src/main.ts"
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
     environment:
-      DATABASE_URL: postgres://review:review@postgres:5432/review
-      REDIS_URL: redis://redis:6379
-      PORT: "8080"
-    ports: ["8080:8080"]
-    volumes: [".:/app"]
-    depends_on:
-      postgres: { condition: service_healthy }
-      redis: { condition: service_healthy }
+      MINIO_ROOT_USER: review
+      MINIO_ROOT_PASSWORD: review-local-only
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [miniodata:/data]
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes: ["./deploy/otel-collector.yaml:/etc/otelcol/config.yaml:ro"]
+    ports: ["4318:4318"]
 volumes:
   pgdata: {}
+  miniodata: {}

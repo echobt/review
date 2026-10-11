@@ -122,6 +122,55 @@ export const TestGenRun = z.object({
 });
 export type TestGenRun = z.infer<typeof TestGenRun>;
 
+export const AgentKind = z.enum(["planner", "bug-hunter", "security", "cross-file", "test-gen", "verifier", "summarizer", "semgrep-triage", "judge"]);
+export type AgentKind = z.infer<typeof AgentKind>;
+
+/** Chat model tiers (ADR 0006 names: cheap=small, standard=medium, premium=large). Embeddings use their own route. */
+export const ModelTier = z.enum(["small", "medium", "large"]);
+export type ModelTier = z.infer<typeof ModelTier>;
+
+export const FeedbackVerdict = z.enum(["thumbs_up", "thumbs_down", "resolved", "dismissed"]);
+export type FeedbackVerdict = z.infer<typeof FeedbackVerdict>;
+
+export const Feedback = z.object({
+  id: Id,
+  findingId: Id,
+  verdict: FeedbackVerdict,
+  /** Optional free-text reason. Stored, never logged. */
+  reason: z.string().max(2000).optional(),
+  actor: z.string().max(200).optional(),
+  createdAt: IsoDate,
+});
+export type Feedback = z.infer<typeof Feedback>;
+
+/** Per-tenant review configuration (rules, path filters, tier overrides, noise controls). */
+export const TenantConfig = z.object({
+  rules: z.array(Rule).default([]),
+  pathFilters: z.object({
+    include: z.array(z.string()).default(["**/*"]),
+    exclude: z.array(z.string()).default(["**/node_modules/**", "**/dist/**", "**/*.lock", "**/vendor/**"]),
+  }).default({ include: ["**/*"], exclude: ["**/node_modules/**", "**/dist/**", "**/*.lock", "**/vendor/**"] }),
+  tierOverrides: z.partialRecord(AgentKind, ModelTier).default({}),
+  /** Findings below this calibrated confidence are dropped before posting. */
+  confidenceThreshold: z.number().min(0).max(1).default(0.6),
+  /** Max inline comments per PR, ranked by severity x confidence. */
+  maxComments: z.number().int().min(0).max(100).default(15),
+  /** Per-PR model spend cap in USD. */
+  prBudgetUsd: z.number().positive().default(0.5),
+  /** Per-tenant monthly model spend cap in USD. */
+  monthlyBudgetUsd: z.number().positive().default(500),
+});
+export type TenantConfig = z.infer<typeof TenantConfig>;
+
+export const SandboxLimits = z.object({
+  cpus: z.number().positive().max(16).default(1),
+  memoryMb: z.number().int().min(64).max(32768).default(1024),
+  timeoutSec: z.number().int().min(1).max(3600).default(300),
+  pids: z.number().int().min(16).max(4096).default(256),
+  network: z.enum(["none", "egress-allowlist"]).default("none"),
+});
+export type SandboxLimits = z.infer<typeof SandboxLimits>;
+
 export const ScoreMetrics = z.object({
   precision: z.number().min(0).max(1),
   recall: z.number().min(0).max(1),
