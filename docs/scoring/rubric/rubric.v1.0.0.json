@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "matching": {
+    "lineTolerance": 3,
+    "requireCategory": false
+  },
+  "severityWeights": {
+    "info": 0,
+    "low": 1,
+    "medium": 2,
+    "high": 4,
+    "critical": 8
+  },
+  "composite": {
+    "severityWeightedRecall": 0.5,
+    "precision": 0.3,
+    "fpPenalty": 0.2
+  },
+  "fpPerPrCap": 3,
+  "minRuns": 3
+}

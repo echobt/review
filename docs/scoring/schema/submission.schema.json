@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/echobt/code-review-scoring/schema/submission.schema.json",
+  "title": "Scoring submission",
+  "type": "object",
+  "required": [
+    "system",
+    "rubricVersion",
+    "datasetVersion",
+    "runs",
+    "harness"
+  ],
+  "properties": {
+    "system": {
+      "type": "object",
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    },
+    "rubricVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "datasetVersion": {
+      "type": "string"
+    },
+    "harness": {
+      "type": "object",
+      "required": [
+        "commit",
+        "command"
+      ],
+      "properties": {
+        "commit": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        }
+      }
+    },
+    "runs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "properties": {
+          "results": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "caseId",
+                "findings",
+                "latencyMs",
+                "costUsd"
+              ],
+              "properties": {
+                "caseId": {
+                  "type": "string"
+                },
+                "latencyMs": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "costUsd": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "findings": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "category",
+                      "severity",
+                      "location",
+                      "title"
+                    ],
+                    "properties": {
+                      "category": {
+                        "enum": [
+                          "bug",
+                          "security",
+                          "performance",
+                          "maintainability",
+                          "style",
+                          "test",
+                          "docs"
+                        ]
+                      },
+                      "severity": {
+                        "enum": [
+                          "info",
+                          "low",
+                          "medium",
+                          "high",
+                          "critical"
+                        ]
+                      },
+                      "location": {
+                        "type": "object",
+                        "required": [
+                          "path",
+                          "startLine",
+                          "endLine"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "path": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "startLine": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "endLine": {
+                            "type": "integer",
+                            "minimum": 1
+                          }
+                        }
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "confidence": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

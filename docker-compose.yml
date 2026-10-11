@@ -1,0 +1,38 @@
+# Local dev only. No secrets: credentials below are throwaway local defaults.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: review
+      POSTGRES_PASSWORD: review
+      POSTGRES_DB: review
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./services/api-gateway/sql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U review"]
+      interval: 5s
+      retries: 10
+  redis:
+    image: valkey/valkey:8-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      retries: 10
+  api:
+    image: node:24-alpine
+    working_dir: /app
+    command: sh -c "corepack enable && pnpm install --frozen-lockfile=false && node --experimental-strip-types services/api-gateway/src/main.ts"
+    environment:
+      DATABASE_URL: postgres://review:review@postgres:5432/review
+      REDIS_URL: redis://redis:6379
+      PORT: "8080"
+    ports: ["8080:8080"]
+    volumes: [".:/app"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+volumes:
+  pgdata: {}

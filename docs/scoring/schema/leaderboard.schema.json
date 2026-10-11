@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Leaderboard",
+  "type": "object",
+  "required": [
+    "rubricVersion",
+    "datasetVersion",
+    "generatedAt",
+    "entries"
+  ],
+  "properties": {
+    "rubricVersion": {
+      "type": "string"
+    },
+    "datasetVersion": {
+      "type": "string"
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "rank",
+          "system",
+          "rubricVersion",
+          "datasetVersion",
+          "score",
+          "scoreStdDev",
+          "precision",
+          "recall",
+          "severityWeightedRecall",
+          "falsePositivesPerPr",
+          "latencyP50Ms",
+          "costPerPrUsd",
+          "verified",
+          "submissionPath"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Scoring rubric",
+  "type": "object",
+  "required": [
+    "version",
+    "matching",
+    "severityWeights",
+    "composite",
+    "fpPerPrCap",
+    "minRuns"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "matching": {
+      "type": "object",
+      "required": [
+        "lineTolerance",
+        "requireCategory"
+      ],
+      "properties": {
+        "lineTolerance": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "requireCategory": {
+          "type": "boolean"
+        }
+      }
+    },
+    "severityWeights": {
+      "type": "object",
+      "required": [
+        "info",
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "info": {
+          "type": "number",
+          "minimum": 0
+        },
+        "low": {
+          "type": "number",
+          "minimum": 0
+        },
+        "medium": {
+          "type": "number",
+          "minimum": 0
+        },
+        "high": {
+          "type": "number",
+          "minimum": 0
+        },
+        "critical": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "composite": {
+      "type": "object",
+      "required": [
+        "severityWeightedRecall",
+        "precision",
+        "fpPenalty"
+      ],
+      "properties": {
+        "severityWeightedRecall": {
+          "type": "number"
+        },
+        "precision": {
+          "type": "number"
+        },
+        "fpPenalty": {
+          "type": "number"
+        }
+      }
+    },
+    "fpPerPrCap": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "minRuns": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

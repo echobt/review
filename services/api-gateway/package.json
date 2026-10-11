@@ -1,0 +1,22 @@
+{
+  "name": "@review/api-gateway",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Public REST/SSE API: auth, validation, enqueue.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.ts",
+    "start": "node --experimental-strip-types src/main.ts"
+  },
+  "dependencies": {
+    "@review/core": "workspace:*",
+    "@review/service-common": "workspace:*",
+    "zod": "^4.1.0",
+    "fastify": "^5.6.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "@types/node": "^24.0.0"
+  }
+}
