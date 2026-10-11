@@ -2,7 +2,6 @@ import { MemoryBudgetLedger, ModelRouter, defaultPolicy, providersFromEnv } from
 import { pgDatabase } from "@review/db";
 import { createProducer } from "@review/queue";
 import { memoryObjectStore, readSecret, runWorker, s3ObjectStore } from "@review/service-common";
-// ponytail: relative import keeps agent-runner out of this package's deps; switch to "@review/agent-runner" (workspace dep) once installed.
 import { runAgent } from "@review/agent-runner";
 import { OctokitlessGitHubClient } from "./github.ts";
 import { handle } from "./handler.ts";

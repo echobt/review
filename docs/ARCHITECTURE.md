@@ -1,12 +1,12 @@
 # Architecture: AI Code Review + Security Platform (Backend)
 
-Status: PROPOSAL (v0.1, 2026-10-11). Nothing below is implemented yet unless marked **FACT**.
+Status: PROPOSAL (v0.1, 2026-10-11) for the design. What is implemented now (and what is stubbed) is tracked in [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md).
 
 ## 0. Fact vs Proposal
 
 | Item | Kind | Notes |
 |---|---|---|
-| Repo currently contains only `README.md` and these docs | FACT | Greenfield. |
+| Monorepo with the six services and shared packages below | FACT | See [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md). |
 | Public scoring repo `github.com/echobt/code-review-scoring` hosts rubric, dataset schema, leaderboard | FACT (external) | We consume and publish to it; we do not own its release cadence. |
 | GitHub/GitLab deliver PR webhooks; GitHub Apps use installation tokens | FACT (platform behavior) | |
 | Postgres RLS, pgvector HNSW, BullMQ, tree-sitter, gVisor `runsc`, Firecracker, Semgrep OSS, OpenTelemetry exist and behave as documented upstream | FACT (upstream) | Versions pinned in Phase 0. |
@@ -518,6 +518,8 @@ flowchart LR
 | review.general, review.security, testgen | standard | frontier model via OpenRouter / Azure OpenAI | alternate provider same tier |
 | hard security escalation, judge | premium | top model via Bedrock / Azure | standard tier + flag |
 | embed | embed | tenant-configured embedding model | none (fail index job, retry) |
+
+Implementation tier names (`@review/core` `ModelTier`): cheap = `small`, standard = `medium`, premium = `large`, plus the separate `embed` route.
 
 Budget caps per tenant per month and per ReviewRun; on cap, downgrade tier then stop with partial review. Self-host routes all tiers to vLLM.
 

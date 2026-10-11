@@ -1,4 +1,6 @@
-# Backend skeleton
+# Backend layout
+
+> Superseded in part: this file described the Phase-0 skeleton. Current per-package status lives in [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md); the message contracts below are still accurate, plus `index.requested.mode`/`indexId`, `sandbox.run.limits` and `score.requested.scoreId`.
 
 **FACT** = exists and is checked in this repo. **PROPOSAL** = planned (see `PLAN.md`).
 
