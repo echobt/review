@@ -13,7 +13,8 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "migrate": "node src/migrate-cli.ts"
   },
   "dependencies": {
     "@review/core": "workspace:*",

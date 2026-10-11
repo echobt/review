@@ -11,7 +11,8 @@
     "typecheck": "pnpm -r build",
     "test": "pnpm -r test",
     "validate:model": "node scripts/validate-model.ts",
-    "check:mermaid": "node scripts/check-mermaid.mjs"
+    "check:mermaid": "node scripts/check-mermaid.mjs",
+    "db:migrate": "pnpm --filter @review/db migrate"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
