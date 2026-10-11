@@ -32,7 +32,11 @@ export function hashEmbeddings(req: EmbedRequest): EmbedResult {
   const dim = req.dimensions ?? 1024;
   const vectors = req.input.map((text) => {
     const v = new Array<number>(dim).fill(0);
-    const toks = text.toLowerCase().match(/[a-z_][a-z0-9_]*|\d+/g) ?? [];
+    // Identifiers contribute the whole token plus camelCase/snake_case sub-words, so "compute invoice" matches computeInvoiceTotal.
+    const toks = (text.match(/[A-Za-z_][A-Za-z0-9_]*|\d+/g) ?? []).flatMap((w) => {
+      const parts = w.split(/_|(?<=[a-z0-9])(?=[A-Z])/).filter(Boolean).map((p) => p.toLowerCase());
+      return parts.length > 1 ? [w.toLowerCase(), ...parts] : [w.toLowerCase()];
+    });
     const feats = [...toks, ...toks.slice(1).map((t, i) => `${toks[i]}|${t}`)];
     for (const f of feats) {
       const h = createHash("sha1").update(f).digest();
