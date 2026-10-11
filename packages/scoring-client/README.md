@@ -1,23 +1,23 @@
 # @review/scoring-client
 
-Typed, credential-free client and **reference scorer** for the public scoring repo
-[`echobt/code-review-scoring`](https://github.com/echobt/code-review-scoring) (see `docs/SCORING-PUBLIC.md`).
+Typed client and reference scorer for the public scoring repo (`docs/scoring/`, mirrored at echobt/code-review-scoring). It needs no credentials.
 
 ```ts
-import { ScoringClient, scoreSubmission, Submission } from "@review/scoring-client";
+import { ScoringClient, scoreSubmission, runMetrics, buildLeaderboard, regressionGate, matchWithJudge, LlmJudge } from "@review/scoring-client";
 
-const sc = new ScoringClient();                 // raw.githubusercontent.com/.../main
+const sc = new ScoringClient();                       // or { baseUrl, fetch }
 const rubric = await sc.rubric("1.0.0");
 const dataset = await sc.dataset("sample-0.1");
-const result = scoreSubmission(dataset, Submission.parse(json), rubric);
-console.log(result.score, result.scoreStdDev);
+
+const result = scoreSubmission(dataset, submission, rubric);          // { score, scoreStdDev, runs[] }
+const { metrics } = runMetrics(dataset, results, rubric, feedback);   // + f05, acceptanceRate, resolutionRate
+
+const lb = buildLeaderboard([{ submission, result, path: "submissions/x/submission.json", verified: false }]);
+const { pass, reasons } = regressionGate(baseline, candidate, { maxScoreDrop: 1, maxSwrDrop: 0.02, maxPrecisionDrop: 0.02 });
+
+// Optional: let a judge decide only same-path near-misses (default scoring stays deterministic).
+const judged = await matchWithJudge(dataset, results, rubric, new LlmJudge(router), { nearMissLines: 20 });
 ```
 
-`scoreRun` is the normative implementation of rubric v1.0.0: greedy one-to-one matching by descending confidence, same path, line ranges overlapping within `lineTolerance`.
-
-## Checks
-
-```sh
-pnpm --filter @review/scoring-client typecheck   # tsc --noEmit, typescript@5
-pnpm --filter @review/scoring-client test        # node:test
-```
+- The composite score is rubric v1.0.0's weighted geometric mean of SWR, precision and the FP/PR term. F0.5, latency p50/p95, cost and the feedback rates are reported next to the score; they are not part of it.
+- `Judge` is `{ judge(bug, finding): Promise<{ match, confidence }> }`. `DeterministicJudge` always answers no. `LlmJudge` accepts anything that has a ModelRouter-like `json()` method.
