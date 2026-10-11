@@ -45,6 +45,17 @@ export const CreateFeedbackRequest = z.object({
 });
 export type CreateFeedbackRequest = z.infer<typeof CreateFeedbackRequest>;
 
+/** Scores are computed asynchronously by scoring-service; poll GET /v1/scores/:id. */
+export const ScoreJob = z.object({
+  id: z.string(),
+  reviewId: z.string(),
+  datasetCaseId: z.string(),
+  status: z.enum(["queued", "completed", "failed"]),
+  report: ScoreReport.optional(),
+  error: z.string().optional(),
+});
+export type ScoreJob = z.infer<typeof ScoreJob>;
+
 export const FindingList = z.object({ findings: z.array(Finding) });
 export type FindingList = z.infer<typeof FindingList>;
 
@@ -60,7 +71,7 @@ export const ReviewEvent = z.discriminatedUnion("type", [
 ]);
 export type ReviewEvent = z.infer<typeof ReviewEvent>;
 
-export { Feedback as FeedbackResponse, TenantConfig as TenantConfigResponse, Review as ReviewResponse, RepoIndex as IndexResponse, TestGenRun as TestGenResponse, ScoreReport as ScoreResponse };
+export { Feedback as FeedbackResponse, TenantConfig as TenantConfigResponse, Review as ReviewResponse, RepoIndex as IndexResponse, TestGenRun as TestGenResponse, ScoreJob as ScoreResponse };
 
 // Re-exported for gateway/client convenience.
 export { TenantConfig as TenantConfigBody };

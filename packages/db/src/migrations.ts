@@ -97,7 +97,8 @@ CREATE TABLE suppressions (${ID}, ${T}, repository_id text NOT NULL, fingerprint
 CREATE TABLE test_gen_runs (${ID}, ${T}, review_id text, repository_id text NOT NULL, status text NOT NULL, target_paths text[] NOT NULL,
   attempts int NOT NULL DEFAULT 0, result jsonb NOT NULL DEFAULT '{}', ${NOW});
 CREATE TABLE sandbox_runs (${ID}, ${T}, image text NOT NULL, command jsonb NOT NULL, status text NOT NULL, exit_code int, result_object_key text, ${NOW});
-CREATE TABLE score_reports (${ID}, ${T}, review_id text, rubric_version text NOT NULL, dataset_version text NOT NULL, score real NOT NULL, data jsonb NOT NULL, ${NOW});
+CREATE TABLE score_reports (${ID}, ${T}, review_id text, dataset_case_id text, status text NOT NULL DEFAULT 'completed' CHECK (status IN ('queued','completed','failed')),
+  rubric_version text NOT NULL, dataset_version text, score real, data jsonb, error text, ${NOW});
 CREATE TABLE usage_ledger (id bigserial PRIMARY KEY, ${T}, review_id text, model text NOT NULL, input_tokens int NOT NULL, output_tokens int NOT NULL,
   cost_usd numeric(12,6) NOT NULL, at timestamptz NOT NULL DEFAULT now());
 
