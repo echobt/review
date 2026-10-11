@@ -20,14 +20,15 @@ services:
       test: ["CMD", "valkey-cli", "ping"]
       interval: 5s
       retries: 10
-  minio:
-    image: minio/minio:latest
-    command: ["server", "/data", "--console-address", ":9001"]
+  # S3-compatible object store. RustFS (Apache-2.0) instead of MinIO: the minio/minio image is no longer
+  # freely pullable. Any S3 endpoint works via S3_ENDPOINT + standard AWS credentials.
+  objectstore:
+    image: rustfs/rustfs:latest
     environment:
-      MINIO_ROOT_USER: review
-      MINIO_ROOT_PASSWORD: review-local-only
-    ports: ["9000:9000", "9001:9001"]
-    volumes: [miniodata:/data]
+      RUSTFS_ACCESS_KEY: review
+      RUSTFS_SECRET_KEY: review-local-only
+    ports: ["9000:9000"]
+    volumes: [objdata:/data]
   otel-collector:
     image: otel/opentelemetry-collector:latest
     command: ["--config=/etc/otelcol/config.yaml"]
@@ -35,4 +36,4 @@ services:
     ports: ["4318:4318"]
 volumes:
   pgdata: {}
-  miniodata: {}
+  objdata: {}
