@@ -1,29 +1,20 @@
 # @review/sdk
 
-High-level SDK on top of `@review/client`.
-
-| Function | What it does |
-|---|---|
-| `reviewPullRequest(repoId, prRef)` | starts a PR review, streams events, resolves with the completed `Review` |
-| `reviewDiff(repoId, diff, baseSha?)` | same, for a raw unified diff |
-| `indexRepo(repoId, sha, incremental?)` | requests a (incremental) repository index |
-| `generateTests(repoId, paths, opts?)` | starts a sandboxed test-generation run |
-| `scoreReview(reviewId, datasetCaseId)` | scores a review against a public dataset case |
+High-level SDK built on `@review/client`.
 
 ```ts
-import { ReviewSdk } from "@review/sdk";
+import { ReviewSdk, verifyWebhookSignature } from "@review/sdk";
 
-// Auth: options.apiKey > REVIEW_API_KEY > file at REVIEW_API_KEY_FILE. Base URL: options.baseUrl > REVIEW_API_URL.
-const sdk = new ReviewSdk({ onEvent: (e) => console.log(e.type) });
-const review = await sdk.reviewPullRequest("repo-1", { provider: "github", owner: "acme", repo: "api", number: 42 });
-console.log(review.findings.length);
+const sdk = new ReviewSdk({ baseUrl: "https://review.example.com", onEvent: (e) => console.log(e.type) });
+const review = await sdk.reviewPullRequest("repo", { provider: "github", owner: "o", repo: "r", number: 1 });
+await sdk.reviewDiff("repo", diff);
+await sdk.indexRepo("repo", commitSha);
+await sdk.generateTests("repo", ["src/a.ts"]);
+const report = await sdk.scoreReview(review.id, "sample-001"); // polls until the ScoreReport is ready
+
+// Webhooks: verify against the exact raw body.
+if (!verifyWebhookSignature(secret, rawBody, req.headers["x-hub-signature-256"])) return res.status(401).end();
 ```
 
-No secrets are bundled; keys come from env or a secret file mounted at runtime.
-
-## Checks
-
-```sh
-pnpm --filter @review/sdk typecheck   # tsc --noEmit, typescript@5
-pnpm --filter @review/sdk test        # node:test
-```
+- **Auth:** the key comes from the `apiKey` option, then `REVIEW_API_KEY`, then the file at `REVIEW_API_KEY_FILE`. The base URL comes from `baseUrl` or `REVIEW_API_URL`.
+- **`scoreReview`:** waits 250ms between polls and doubles the wait up to 5s. It gives up after `scoreTimeoutMs` (default 120s). `sleep` can be injected.

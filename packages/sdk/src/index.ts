@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { ReviewClient, type ClientOptions } from "@review/client";
 import type { PullRequestRef, Review, RepoIndex, TestGenRun, ScoreReport, ReviewEvent } from "@review/core";
 
@@ -8,6 +9,19 @@ export type * from "@review/core";
 export interface SdkOptions extends Partial<ClientOptions> {
   /** Called for every streamed review event (status, finding, ...). */
   onEvent?: (ev: ReviewEvent) => void;
+  /** scoreReview polling: total timeout (default 120s) and injectable sleep. */
+  scoreTimeoutMs?: number;
+}
+
+/**
+ * Verify an `X-Signature-256: sha256=<hex>` style header over the exact raw request body (HMAC-SHA256,
+ * constant-time compare). Accepts the bare hex digest too.
+ */
+export function verifyWebhookSignature(secret: string, rawBody: string | Uint8Array, header: string | null | undefined): boolean {
+  if (!secret || !header) return false;
+  const got = Buffer.from(header.trim().replace(/^sha256=/, ""), "hex");
+  const want = createHmac("sha256", secret).update(rawBody).digest();
+  return got.length === want.length && timingSafeEqual(got, want);
 }
 
 /**
@@ -24,6 +38,8 @@ export function resolveApiKey(env: NodeJS.ProcessEnv = process.env, explicit?: s
 export class ReviewSdk {
   readonly client: ReviewClient;
   readonly #onEvent: ((ev: ReviewEvent) => void) | undefined;
+  readonly #sleep: (ms: number) => Promise<void>;
+  readonly #scoreTimeoutMs: number;
 
   constructor(opts: SdkOptions = {}, env: NodeJS.ProcessEnv = process.env) {
     const baseUrl = opts.baseUrl ?? env.REVIEW_API_URL;
@@ -31,6 +47,8 @@ export class ReviewSdk {
     const apiKey = resolveApiKey(env, opts.apiKey);
     this.client = new ReviewClient({ ...opts, baseUrl, ...(apiKey ? { apiKey } : {}) });
     this.#onEvent = opts.onEvent;
+    this.#sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+    this.#scoreTimeoutMs = opts.scoreTimeoutMs ?? 120_000;
   }
 
   /** Start a review and resolve with the completed review (streams events via onEvent). */
@@ -61,7 +79,17 @@ export class ReviewSdk {
     return this.client.createTestGen({ repositoryId, targetPaths, ...opts });
   }
 
-  scoreReview(reviewId: string, datasetCaseId: string): Promise<ScoreReport> {
-    return this.client.score({ reviewId, datasetCaseId });
+  /** Enqueue scoring and poll until the report is ready (backoff 250ms doubling to 5s, bounded by scoreTimeoutMs). */
+  async scoreReview(reviewId: string, datasetCaseId: string): Promise<ScoreReport> {
+    let job = await this.client.score({ reviewId, datasetCaseId });
+    let waited = 0;
+    for (let delay = 250; job.status === "queued"; delay = Math.min(delay * 2, 5_000)) {
+      if (waited >= this.#scoreTimeoutMs) throw new Error(`score ${job.id} not completed after ${this.#scoreTimeoutMs}ms`);
+      await this.#sleep(delay);
+      waited += delay;
+      job = await this.client.getScore(job.id);
+    }
+    if (job.status === "failed" || !job.report) throw new Error(`score ${job.id} failed: ${job.error ?? "no report"}`);
+    return job.report;
   }
 }

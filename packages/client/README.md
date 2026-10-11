@@ -1,20 +1,22 @@
 # @review/client
 
-Typed REST + SSE client for the platform API. Requests are validated before any I/O; responses are validated with the `@review/core` schemas, so a server drift fails loudly.
+Typed REST and SSE client for the review API. It is ESM only, and every request and response is checked with zod.
 
 ```ts
-import { ReviewClient, ReviewApiError } from "@review/client";
+import { ReviewClient } from "@review/client";
 
-const client = new ReviewClient({ baseUrl: "http://localhost:8080", apiKey: process.env.REVIEW_API_KEY });
-const review = await client.createReview({ kind: "diff", repositoryId: "repo-1", diff });
-for await (const ev of client.reviewEvents(review.id)) console.log(ev.type);
+const c = new ReviewClient({ baseUrl: "https://review.example.com", apiKey: process.env.REVIEW_API_KEY });
+const review = await c.createReview({ kind: "diff", repositoryId: "repo", diff });
+for await (const ev of c.reviewEvents(review.id)) console.log(ev.type);
+const findings = await c.listFindings(review.id);
+await c.createFeedback(findings[0].id, { verdict: "resolved" });
+await c.putConfig({ maxComments: 10 }); await c.getConfig();
+await c.createIndex({ repositoryId: "repo", commitSha }); await c.getIndex(id);
+await c.createTestGen({ repositoryId: "repo", targetPaths: ["src/a.ts"] }); await c.getTestGen(id);
+const job = await c.score({ reviewId: review.id, datasetCaseId: "sample-001" }); // ScoreJob
+await c.getScore(job.id);
 ```
 
-Errors: non-2xx responses throw `ReviewApiError { status, code }`. The API key is only sent as a bearer header, never logged.
-
-## Checks
-
-```sh
-pnpm --filter @review/client typecheck   # tsc --noEmit, typescript@5
-pnpm --filter @review/client test        # node:test
-```
+- **Retries:** GETs are retried on 429, 5xx and network errors, up to `maxRetries` times (default 3). Delays use full-jitter exponential backoff and honour `Retry-After`. POST and PUT are never retried. `sleep` and `random` can be injected for tests.
+- **SSE:** if the stream drops before a `completed` or `error` event, the client reconnects once and sends `Last-Event-ID`.
+- The API key goes only in the `Authorization: Bearer` header and is never logged.
