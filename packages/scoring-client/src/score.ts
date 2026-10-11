@@ -23,7 +23,8 @@ export function scoreRun(dataset: Dataset, results: CaseResult[], rubric: Rubric
       if (hit) { unmatched.delete(hit); tp++; wMatched += rubric.severityWeights[hit.severity] ?? 0; } else fp++;
     }
   }
-  const precision = tp + fp === 0 ? 1 : tp / (tp + fp);
+  // Reporting nothing on a dataset with bugs is not "perfectly precise".
+  const precision = tp + fp === 0 ? (labels === 0 ? 1 : 0) : tp / (tp + fp);
   const recall = labels === 0 ? 1 : tp / labels;
   const f1 = precision + recall === 0 ? 0 : (2 * precision * recall) / (precision + recall);
   const severityWeightedRecall = wTotal === 0 ? 1 : wMatched / wTotal;
@@ -36,7 +37,8 @@ export function scoreRun(dataset: Dataset, results: CaseResult[], rubric: Rubric
   };
   const k = rubric.composite;
   const fpTerm = 1 - Math.min(falsePositivesPerPr / rubric.fpPerPrCap, 1);
-  const score = 100 * (k.severityWeightedRecall * severityWeightedRecall + k.precision * precision + k.fpPenalty * fpTerm)
+  // Noise terms are scaled by SWR so a silent reviewer cannot bank precision/FP credit (empty submission = 0).
+  const score = 100 * severityWeightedRecall * (k.severityWeightedRecall + k.precision * precision + k.fpPenalty * fpTerm)
     / (k.severityWeightedRecall + k.precision + k.fpPenalty);
   return { metrics, score };
 }

@@ -47,3 +47,11 @@ test("ScoringClient fetches and validates rubric from the configured base", asyn
   assert.equal(r.version, "1.0.0");
   assert.deepEqual(seen, ["https://example.test/repo/rubric/rubric.v1.0.0.json"]);
 });
+
+test("empty submission scores 0 (cannot bank precision/FP credit by staying silent)", () => {
+  const empty = dataset.cases.map((c) => ({ caseId: c.id, latencyMs: 1, costUsd: 0, findings: [] }));
+  const r = scoreRun(dataset, empty, rubric);
+  assert.equal(r.metrics.precision, 0);
+  assert.equal(r.score, 0);
+});
+

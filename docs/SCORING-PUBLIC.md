@@ -9,7 +9,7 @@ Goal: anyone can check, reproduce, and improve how AI code reviewers (ours inclu
 | Metric | Definition |
 |---|---|
 | Match | A submitted finding matches a labelled bug when it is in the same `path` and its line range overlaps the bug's `[startLine-3, endLine+3]` (`lineTolerance: 3`). Category does not need to match in v1 (`requireCategory: false`). Matching is one-to-one and greedy, by descending `confidence`. |
-| Precision | TP / (TP + FP), over all findings in the dataset |
+| Precision | TP / (TP + FP), over all findings in the dataset. If no findings are submitted, precision is 0 when the dataset has labelled bugs, and 1 only when it has none |
 | Recall | TP / number of labelled bugs |
 | Severity-weighted recall (SWR) | sum of matched-bug weights / sum of all bug weights, with weights info 0, low 1, medium 2, high 4, critical 8 |
 | FP per PR | FP / number of cases. Clean cases (`bugs: []`) exist so that noisy systems get penalised |
@@ -17,7 +17,9 @@ Goal: anyone can check, reproduce, and improve how AI code reviewers (ours inclu
 | Cost | mean `costUsd` per case, as reported by the submitter (provider bill or token count x list price) |
 | Reproducibility | at least `minRuns` = 3 independent full runs; reported score = mean, `scoreStdDev` = population std dev |
 
-**Composite score (0-100)** = 100 x (0.5·SWR + 0.3·Precision + 0.2·(1 − min(FPperPR / 3, 1))) / 1.0.
+**Composite score (0-100)** = 100 x SWR x (0.5 + 0.3·Precision + 0.2·(1 − min(FPperPR / 3, 1))) / 1.0.
+
+The precision and FP terms are multiplied by SWR, so a reviewer that reports nothing scores 0. It cannot collect the noise credit by staying silent. A perfect reviewer scores 100.
 
 Latency and cost are **reported next to the score, not folded into it**, so readers can make their own trade-offs. The normative implementation is `scoreRun` / `scoreSubmission` in `@review/scoring-client`.
 
