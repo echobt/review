@@ -29,5 +29,5 @@ test("valid diff review returns 201 and enqueues tenant-scoped review.requested"
   assert.equal(r.statusCode, 201);
   const last = sent.at(-1)!;
   assert.equal(last.q, "review.requested"); assert.equal(last.tenant, "tenant-1");
-  assert.match((last.payload as { diffObjectKey: string }).diffObjectKey, /^tenant-1\/diffs\//);
+  assert.match((last.payload as { diffObjectKey: string }).diffObjectKey, /^tenants\/tenant-1\/diffs\//);
 });
