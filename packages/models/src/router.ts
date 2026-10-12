@@ -77,6 +77,7 @@ export interface CallOptions {
   tools?: ToolSpec[];
   toolChoice?: string;
   jsonMode?: boolean;
+  sessionId?: string;
   signal?: AbortSignal;
 }
 
@@ -142,7 +143,7 @@ export class ModelRouter {
           try {
             const r = await provider.chat({ model: target.model, messages, maxTokens: outTok,
               ...(opts.tools ? { tools: opts.tools } : {}), ...(opts.toolChoice ? { toolChoice: opts.toolChoice } : {}),
-              ...(opts.jsonMode ? { jsonMode: true } : {}), ...(opts.signal ? { signal: opts.signal } : {}) });
+              ...(opts.jsonMode ? { jsonMode: true } : {}), ...(opts.sessionId ? { sessionId: opts.sessionId } : {}), ...(opts.signal ? { signal: opts.signal } : {}) });
             const actual = r.usage.costUsd ?? cost(target, r.usage.inputTokens, r.usage.outputTokens);
             await this.#budget.settle(opts.scope, est, actual);
             br.success();
