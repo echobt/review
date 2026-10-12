@@ -2,11 +2,12 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { FindingCategory, Severity, type ModelTier, type TenantConfig, type Usage } from "@review/core";
 import { FindingDraft } from "@review/schemas";
-import { BudgetExceededError, type ChatMessage, type ModelRouter, type ToolSpec } from "@review/models";
+import { BudgetExceededError, createLimiter, type ChatMessage, type Limiter, type ModelRouter, type RoutedResult, type ToolSpec } from "@review/models";
 import type { CodeIndex } from "@review/indexer-worker";
 import { addedLines, renderPack, type ContextPack } from "./pack.ts";
 import type { DiffFile } from "./plan.ts";
 import { addendaFor, versionNote } from "./languages.ts";
+import { selectDepth, tierSignals, TIER_WIDTH, type Depth } from "./tier.ts";
 
 /** GREPTILE-GAP §4.2 hypothesis kinds. */
 export const HypothesisKind = z.enum(["null-safety", "contract-api", "missing-impl", "import-symbol", "consistency", "numeric-truthiness", "concurrency", "security", "resource-cleanup"]);
@@ -22,12 +23,12 @@ export type Hypothesis = z.infer<typeof Hypothesis>;
 export const HypothesisList = z.object({ hypotheses: z.array(Hypothesis).max(60) });
 
 /** Hypothesis cap per review depth (GREPTILE-GAP §4.2 cost guard). */
-export const HYPOTHESIS_CAP: Record<TenantConfig["reviewDepth"], number> = { fast: 8, standard: 20, deep: 40 };
+export const HYPOTHESIS_CAP: Record<Depth, number> = { fast: 8, standard: 20, deep: 40 };
 
 /** Tier per pipeline role (ADR 0006 / GAP §6.3); security/contract/concurrency hunters escalate to frontier on "deep". */
 export const ROLE_TIER = { planner: "small", hunter: "medium", verifier: "large" } as const satisfies Record<string, ModelTier>;
 const ESCALATE: HypothesisKind[] = ["security", "contract-api", "concurrency"];
-export const hunterTier = (h: Hypothesis | undefined, depth: TenantConfig["reviewDepth"]): ModelTier => (depth === "deep" && h && ESCALATE.includes(h.kind) ? "large" : ROLE_TIER.hunter);
+export const hunterTier = (h: Hypothesis | undefined, depth: Depth): ModelTier => (depth === "deep" && h && ESCALATE.includes(h.kind) ? "large" : ROLE_TIER.hunter);
 
 const KIND_HINT: Record<HypothesisKind, string> = {
   "null-safety": "a value that can be None/null/undefined/nil is dereferenced or compared without a check (look at the callee's definition for when it returns None)",
@@ -94,24 +95,40 @@ export async function runTool(ix: CodeIndex, name: string, rawArgs: string): Pro
 }
 
 // ---------------- LLM plumbing ----------------
-export interface PipelineDeps { router: ModelRouter; index: CodeIndex; scope: { tenantId: string; reviewId: string }; maxToolRounds?: number; log?: (e: Record<string, unknown>) => void }
+export interface PipelineDeps {
+  router: ModelRouter; index: CodeIndex; scope: { tenantId: string; reviewId: string }; maxToolRounds?: number; log?: (e: Record<string, unknown>) => void;
+  /** Shared bounded pool for every agent call of this review (hunters + verifiers). */
+  limit?: Limiter;
+  /** Locations already confirmed by deterministic checks (E0/E1); a candidate there skips the frontier verifier. */
+  deterministic?: Promise<{ path: string; startLine: number; endLine: number }[]>;
+}
 const zero = (): Usage => ({ inputTokens: 0, outputTokens: 0, costUsd: 0, latencyMs: 0 });
-const add = (u: Usage, r: { usage: { inputTokens: number; outputTokens: number }; costUsd: number }) => {
-  u.inputTokens += r.usage.inputTokens; u.outputTokens += r.usage.outputTokens; u.costUsd += r.costUsd;
-};
+interface Acc { usage: Usage; cachedTokens: number; llmCalls: number }
 
-function fenced(text: string) {
+/** Account one routed call and emit an llm event (role, model, latency, tokens incl. cached) for the bench. */
+function record(deps: PipelineDeps, acc: Acc, role: string, r: RoutedResult) {
+  acc.usage.inputTokens += r.usage.inputTokens; acc.usage.outputTokens += r.usage.outputTokens; acc.usage.costUsd += r.costUsd;
+  acc.cachedTokens += r.usage.cachedTokens ?? 0; acc.llmCalls++;
+  const a = r.attempts.at(-1);
+  deps.log?.({ event: "llm", role, tier: r.tier, model: a?.model, latencyMs: r.attempts.reduce((s, x) => s + x.latencyMs, 0), attempts: r.attempts.length,
+    inTok: r.usage.inputTokens, outTok: r.usage.outputTokens, cachedTok: r.usage.cachedTokens ?? 0, ok: true });
+}
+
+/** One unpredictable fence per review: repo content is fixed before the review starts, and every agent shares a cacheable prefix. */
+export function reviewFence() {
   const fence = `UNTRUSTED-${randomBytes(6).toString("hex")}`;
   return { fence, wrap: (label: string, body: string) => `<${fence} ${label}>\n${body}\n</${fence}>` };
 }
+type Fence = ReturnType<typeof reviewFence>;
 
-/** Tool loop: the model may call AGENT_TOOLS up to maxRounds times, then must call the final structured tool. */
-async function agentLoop<T>(deps: PipelineDeps, tier: ModelTier, messages: ChatMessage[], final: { name: string; description: string; schema: z.ZodType<T> }, usage: Usage, fence: string, maxRounds: number): Promise<T> {
+/** Tool loop: the model may call AGENT_TOOLS up to maxRounds times (tool calls of a round run concurrently), then must call the final structured tool. */
+async function agentLoop<T>(deps: PipelineDeps, role: string, tier: ModelTier, messages: ChatMessage[], final: { name: string; description: string; schema: z.ZodType<T> }, acc: Acc, fence: string, maxRounds: number): Promise<T> {
   const finalTool: ToolSpec = { name: final.name, description: final.description, parameters: z.toJSONSchema(final.schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown> };
   const msgs = [...messages];
+  const sessionId = deps.scope.reviewId;
   for (let round = 0; round < maxRounds; round++) {
-    const r = await deps.router.chat(tier, msgs, { scope: deps.scope, tools: [...AGENT_TOOLS, finalTool], toolChoice: "required", maxTokens: 4000 });
-    add(usage, r);
+    const r = await deps.router.chat(tier, msgs, { scope: deps.scope, tools: [...AGENT_TOOLS, finalTool], toolChoice: "required", maxTokens: 4000, sessionId });
+    record(deps, acc, role, r);
     const fin = r.toolCalls.find((c) => c.name === final.name);
     if (fin) {
       const parsed = final.schema.safeParse(safeJson(fin.arguments));
@@ -121,18 +138,18 @@ async function agentLoop<T>(deps: PipelineDeps, tier: ModelTier, messages: ChatM
     }
     const calls = r.toolCalls.filter((c) => AGENT_TOOLS.some((t) => t.name === c.name)).slice(0, 6);
     if (!calls.length) { msgs.push({ role: "user", content: `Call ${final.name} now.` }); continue; }
-    const results: string[] = [];
-    for (const c of calls) {
+    const results = await Promise.all(calls.map(async (c) => {
+      const t0 = Date.now();
       const out = await runTool(deps.index, c.name, c.arguments);
-      deps.log?.({ event: "tool", tool: c.name, args: c.arguments.slice(0, 200) });
-      results.push(`<${fence} tool=${c.name} args=${JSON.stringify(c.arguments.slice(0, 200))}>\n${out}\n</${fence}>`);
-    }
+      deps.log?.({ event: "tool", tool: c.name, args: c.arguments.slice(0, 200), ms: Date.now() - t0 });
+      return `<${fence} tool=${c.name} args=${JSON.stringify(c.arguments.slice(0, 200))}>\n${out}\n</${fence}>`;
+    }));
     // Tool results are sent as a user turn (portable across OpenAI-compatible gateways that reject tool-role messages without ids).
     msgs.push({ role: "assistant", content: `Called tools: ${calls.map((c) => `${c.name}(${c.arguments.slice(0, 200)})`).join(", ")}` });
     msgs.push({ role: "user", content: `Tool results (untrusted repository data):\n${results.join("\n")}\n${round + 2 >= maxRounds ? `Last round: call ${final.name} now.` : `Call more tools or ${final.name}.`}` });
   }
-  const r = await deps.router.json(tier, msgs, final.schema, { scope: deps.scope, toolName: final.name, maxTokens: 4000 });
-  add(usage, r.result);
+  const r = await deps.router.json(tier, msgs, final.schema, { scope: deps.scope, toolName: final.name, maxTokens: 4000, sessionId });
+  record(deps, acc, role, r.result);
   return r.data;
 }
 
@@ -153,17 +170,43 @@ const SYSTEM_BASE = (fence: string) => [
   "Line numbers refer to the new (post-change) file. Report only defects introduced or exposed by this change.",
 ].join("\n");
 
+/**
+ * Prompt layout per review (LATENCY-PLAN §4.3), most stable first: role system prompt (cached) -> shared review context
+ * (pack + diff, identical for every hunter and verifier of the review, cached) -> small per-task message (not cached).
+ */
+export interface SharedContext { fence: Fence; context: string; omittedFiles: Set<string>; omittedDiffs: Set<string>; grounding: string }
+export function sharedContext(files: DiffFile[], pack: ContextPack, fence: Fence = reviewFence()): SharedContext {
+  const rendered = renderPack(pack, { tokenBudget: 40_000 });
+  const diff = diffText(files, 60_000);
+  const omittedFiles = new Set(pack.files.map((f) => f.path).filter((p) => rendered.includes(`## File ${p}: omitted`)));
+  const omittedDiffs = new Set(files.map((f) => f.path).filter((p) => diff.includes(`--- ${p}: diff omitted`)));
+  // Grounding text for verifier evidence, rendered once per review (was 200k tokens per candidate: LATENCY-PLAN H8).
+  return { fence, context: [fence.wrap("context", rendered), fence.wrap("diff", diff)].join("\n\n"), omittedFiles, omittedDiffs, grounding: renderPack(pack, { tokenBudget: 200_000 }) };
+}
+
+/** Focus files the shared context had to omit are re-attached to the task message, so a hunter never sees less than before. */
+function focusExtras(ctx: SharedContext, files: DiffFile[], pack: ContextPack, focus: string[]): string {
+  const parts: string[] = [];
+  for (const p of focus) {
+    const f = pack.files.find((x) => x.path === p);
+    if (f && ctx.omittedFiles.has(p)) parts.push(ctx.fence.wrap(`file path=${JSON.stringify(p)}`, f.content.split("\n").map((l, i) => `${String(i + 1).padStart(5)}  ${l}`).join("\n")));
+  }
+  const diffs = files.filter((f) => focus.includes(f.path) && ctx.omittedDiffs.has(f.path));
+  if (diffs.length) parts.push(ctx.fence.wrap("diff", diffText(diffs, 40_000)));
+  return parts.join("\n\n");
+}
+
 // ---------------- planner ----------------
-export async function planHypotheses(deps: PipelineDeps, files: DiffFile[], pack: ContextPack, cap: number, usage: Usage): Promise<Hypothesis[]> {
-  const { fence, wrap } = fenced("");
+export async function planHypotheses(deps: PipelineDeps, files: DiffFile[], pack: ContextPack, cap: number, acc: Acc, fence: Fence = reviewFence()): Promise<Hypothesis[]> {
+  const { wrap } = fence;
   const changed = files.map((f) => `${f.path} (+${addedLines(f).length})`).join("\n");
   const facts = renderPack(pack, { includeFiles: false, tokenBudget: 12_000 });
   const msgs: ChatMessage[] = [
-    { role: "system", content: `You are the planner of an automated code reviewer. List concrete bug hypotheses worth checking, one per suspicious spot, at most ${cap}. Each hypothesis names file, new-side line, kind (${HypothesisKind.options.join(", ")}) and a precise yes/no question a focused reviewer can verify with code lookups. Cover every changed source file; prefer high-impact runtime failures (crashes, wrong results, broken contracts). Never hypothesise about style or docs.\n${SYSTEM_BASE(fence)}\nCall report_hypotheses once.` },
+    { role: "system", content: `You are the planner of an automated code reviewer. List concrete bug hypotheses worth checking, one per suspicious spot, at most ${cap}. Each hypothesis names file, new-side line, kind (${HypothesisKind.options.join(", ")}) and a precise yes/no question a focused reviewer can verify with code lookups. Cover every changed source file; prefer high-impact runtime failures (crashes, wrong results, broken contracts). Never hypothesise about style or docs.\n${SYSTEM_BASE(fence.fence)}\nCall report_hypotheses once.` },
     { role: "user", content: [`Changed files:\n${changed}`, wrap("facts", facts), wrap("diff", diffText(files, 80_000))].join("\n\n") },
   ];
-  const r = await deps.router.json(ROLE_TIER.planner, msgs, HypothesisList, { scope: deps.scope, toolName: "report_hypotheses", maxTokens: 4000 });
-  add(usage, r.result);
+  const r = await deps.router.json(ROLE_TIER.planner, msgs, HypothesisList, { scope: deps.scope, toolName: "report_hypotheses", maxTokens: 4000, sessionId: deps.scope.reviewId });
+  record(deps, acc, "planner", r.result);
   const known = new Set(files.map((f) => f.path));
   return r.data.hypotheses.filter((h) => known.has(h.file)).slice(0, cap);
 }
@@ -179,22 +222,22 @@ const CandidateList = z.object({ findings: z.array(Candidate).max(10) });
 
 export interface HuntTask { id: string; kind: HypothesisKind | "free-hunt"; files: string[]; hypothesis?: Hypothesis }
 
-export async function hunt(deps: PipelineDeps, task: HuntTask, files: DiffFile[], pack: ContextPack, config: TenantConfig, usage: Usage): Promise<Candidate[]> {
-  const { fence, wrap } = fenced("");
-  const focus = files.filter((f) => task.files.includes(f.path));
+const HUNTER_SYSTEM = (pack: ContextPack, fence: string) => [
+  "You are a focused bug hunter in an automated code reviewer. Your task (one hypothesis to verify, or a free hunt over some files) is given last. Use the tools to look up definitions/callers before concluding. Report a finding only if the code shows the defect; otherwise report an empty list.",
+  "A finding must name the exact new-side line range (<= 10 lines) of the faulty code and explain the impact (what breaks, when). Use category bug or security. Confidence 0..1. Put the code/tool evidence you relied on in evidence_text. Optionally add test: a minimal self-contained test file (path + content, the repo's test framework) that fails on this code because of the defect.",
+  versionNote(pack.versions), SYSTEM_BASE(fence)].filter(Boolean).join("\n\n");
+
+export async function hunt(deps: PipelineDeps, task: HuntTask, files: DiffFile[], pack: ContextPack, depth: Depth, acc: Acc, ctx: SharedContext = sharedContext(files, pack)): Promise<Candidate[]> {
   const role = task.hypothesis
-    ? `You are a focused bug hunter. Verify ONE hypothesis (${task.kind}: ${KIND_HINT[task.hypothesis.kind]}). Use the tools to look up definitions/callers before concluding. Report a finding only if the code shows the defect; otherwise report an empty list.`
-    : `You are a free-hunt reviewer for these files. Find real correctness or security defects introduced by the change, beyond style. Check each changed hunk; look up definitions of names you are unsure about with the tools.`;
+    ? `Task: verify ONE hypothesis (${task.kind}: ${KIND_HINT[task.hypothesis.kind]}).\nHypothesis: ${task.hypothesis.file}:${task.hypothesis.line} [${task.hypothesis.kind}] ${task.hypothesis.question}`
+    : `Task: free hunt over ${task.files.join(", ")}. Find real correctness or security defects introduced by the change, beyond style. Check each changed hunk; look up definitions of names you are unsure about with the tools.`;
   const msgs: ChatMessage[] = [
-    { role: "system", content: [role, "A finding must name the exact new-side line range (<= 10 lines) of the faulty code and explain the impact (what breaks, when). Use category bug or security. Confidence 0..1. Put the code/tool evidence you relied on in evidence_text. Optionally add test: a minimal self-contained test file (path + content, the repo's test framework) that fails on this code because of the defect.", addendaFor(task.files), versionNote(pack.versions), SYSTEM_BASE(fence)].filter(Boolean).join("\n\n") },
-    { role: "user", content: [
-      task.hypothesis ? `Hypothesis: ${task.hypothesis.file}:${task.hypothesis.line} [${task.hypothesis.kind}] ${task.hypothesis.question}` : `Files: ${task.files.join(", ")}`,
-      wrap("context", renderPack(pack, { focus: task.files, tokenBudget: 40_000 })),
-      wrap("diff", diffText(focus, 40_000)),
-    ].join("\n\n") },
+    { role: "system", content: HUNTER_SYSTEM(pack, ctx.fence.fence), cache: true },
+    { role: "user", content: ctx.context, cache: true },
+    { role: "user", content: [role, addendaFor(task.files), focusExtras(ctx, files, pack, task.files)].filter(Boolean).join("\n\n") },
   ];
-  const tier = hunterTier(task.hypothesis, config.reviewDepth);
-  const out = await agentLoop(deps, tier, msgs, { name: "report_findings", description: "Report the defects found (empty list if none).", schema: CandidateList }, usage, fence, deps.maxToolRounds ?? 4);
+  const tier = hunterTier(task.hypothesis, depth);
+  const out = await agentLoop(deps, "hunter", tier, msgs, { name: "report_findings", description: "Report the defects found (empty list if none).", schema: CandidateList }, acc, ctx.fence.fence, deps.maxToolRounds ?? 4);
   return out.findings;
 }
 
@@ -227,25 +270,25 @@ export function grounded(v: Verdict, c: Candidate, sources: string[]): boolean {
   return frags.some((f) => hay.includes(f));
 }
 
-export async function verify(deps: PipelineDeps, c: Candidate, files: DiffFile[], pack: ContextPack, usage: Usage): Promise<{ verdict: Verdict; grounded: boolean; finding: Candidate } | undefined> {
-  const { fence, wrap } = fenced("");
+export async function verify(deps: PipelineDeps, c: Candidate, files: DiffFile[], pack: ContextPack, acc: Acc, ctx: SharedContext = sharedContext(files, pack)): Promise<{ verdict: Verdict; grounded: boolean; finding: Candidate } | undefined> {
+  const { wrap, fence } = ctx.fence;
   const text = (await deps.index.readFile(c.location.path)) ?? "";
   const lines = text.split("\n");
   const s = Math.max(1, c.location.startLine - 40), e = Math.min(lines.length, c.location.endLine + 40);
   const excerpt = lines.slice(s - 1, e).map((l, i) => `${String(s + i).padStart(5)}  ${l}`).join("\n");
   const msgs: ChatMessage[] = [
     { role: "system", content: [
-      "You are the verifier of an automated code reviewer. Decide whether the candidate finding is a real defect introduced by the change. Use the tools to check definitions, callers and versions; do not trust the candidate's claims.",
+      "You are the verifier of an automated code reviewer. Decide whether the candidate finding (given last) is a real defect introduced by the change. Use the tools to check definitions, callers and versions; do not trust the candidate's claims.",
       "keep=true only if you can cite the faulty line (cited_line, new-side) and quote, inside backticks in evidence, the exact code or tool output that proves the defect. If the claim depends on an API or symbol, look it up first. Reject speculative, style, or 'might' findings.",
-      "You may correct start_line/end_line (<= 10 lines), title and severity.", versionNote(pack.versions), SYSTEM_BASE(fence)].filter(Boolean).join("\n\n") },
+      "You may correct start_line/end_line (<= 10 lines), title and severity.", versionNote(pack.versions), SYSTEM_BASE(fence)].filter(Boolean).join("\n\n"), cache: true },
+    { role: "user", content: ctx.context, cache: true },
     { role: "user", content: [
       wrap("candidate", JSON.stringify({ title: c.title, body: c.body, severity: c.severity, category: c.category, location: c.location, evidence: c.evidence_text ?? "" })),
       wrap(`file path=${JSON.stringify(c.location.path)} lines=${s}-${e}`, excerpt),
-      wrap("context", renderPack(pack, { focus: [c.location.path], tokenBudget: 20_000, includeFiles: false })),
     ].join("\n\n") },
   ];
-  const v = await agentLoop(deps, ROLE_TIER.verifier, msgs, { name: "report_verdict", description: "Keep or drop the candidate, with cited line and evidence.", schema: Verdict }, usage, fence, deps.maxToolRounds ?? 3);
-  const sources = [text, renderPack(pack, { tokenBudget: 200_000 }), c.body, c.evidence_text ?? ""];
+  const v = await agentLoop(deps, "verifier", ROLE_TIER.verifier, msgs, { name: "report_verdict", description: "Keep or drop the candidate, with cited line and evidence.", schema: Verdict }, acc, fence, deps.maxToolRounds ?? 3);
+  const sources = [text, ctx.grounding, c.body, c.evidence_text ?? ""];
   // Evidence may quote tool output the verifier fetched; definitions/references come from the same index, so include those texts.
   const extra = await Promise.all((v.evidence.match(/\b[A-Z][A-Za-z0-9_]{3,}\b/g) ?? []).slice(0, 4).map((n) => deps.index.definitions(n, { limit: 2 }).then((d) => d.map((x) => x.text).join("\n"))));
   const ok = grounded(v, c, [...sources, ...extra]);
@@ -255,7 +298,10 @@ export async function verify(deps: PipelineDeps, c: Candidate, files: DiffFile[]
 }
 
 // ---------------- pipeline ----------------
-export interface PipelineResult { candidates: Candidate[]; kept: Candidate[]; hypotheses: Hypothesis[]; usage: Usage; failures: number; tasks: number; budgetExhausted: boolean }
+export interface PipelineResult {
+  candidates: Candidate[]; kept: Candidate[]; hypotheses: Hypothesis[]; usage: Usage; failures: number; tasks: number; budgetExhausted: boolean;
+  cachedTokens: number; llmCalls: number; width: number; deterministicConfirmed: number;
+}
 
 /** Group changed source files (<= 6 files and <= 2,000 added lines per group, same directory first). */
 export function fileGroups(files: DiffFile[], maxFiles = 6, maxLines = 2000): string[][] {
@@ -271,48 +317,73 @@ export function fileGroups(files: DiffFile[], maxFiles = 6, maxLines = 2000): st
   return groups;
 }
 
-async function pool<T, R>(items: T[], width: number, fn: (t: T) => Promise<R>): Promise<PromiseSettledResult<R>[]> {
-  const out: PromiseSettledResult<R>[] = new Array(items.length);
-  let i = 0;
-  await Promise.all(Array.from({ length: Math.min(width, items.length) }, async () => {
-    while (i < items.length) { const k = i++; try { out[k] = { status: "fulfilled", value: await fn(items[k]!) }; } catch (e) { out[k] = { status: "rejected", reason: e }; } }
-  }));
-  return out;
-}
-
-/** planner (cheap) -> parallel hunters (per hypothesis + one free hunt per file group) -> tool-grounded verifier (frontier). */
-export async function runPipeline(deps: PipelineDeps, files: DiffFile[], pack: ContextPack, config: TenantConfig, opts: { concurrency?: number; verifyThreshold?: number } = {}): Promise<PipelineResult> {
-  const usage = zero();
+/**
+ * Streamed pipeline (LATENCY-PLAN §3.2): free hunts start at t=0 next to the planner; hypothesis hunters start as soon as the
+ * plan lands; each candidate that passes the diff-anchor, dedupe and confidence gates goes straight to a verifier. All agent
+ * calls share one bounded pool (width = tier cap), so there is no hunt->verify barrier.
+ */
+export async function runPipeline(deps: PipelineDeps, files: DiffFile[], pack: ContextPack, config: TenantConfig, opts: { concurrency?: number; verifyThreshold?: number; seeds?: Promise<Candidate[]> } = {}): Promise<PipelineResult> {
+  const acc: Acc = { usage: zero(), cachedTokens: 0, llmCalls: 0 };
   const t0 = Date.now();
-  let failures = 0, budgetExhausted = false;
+  let failures = 0, budgetExhausted = false, deterministicConfirmed = 0;
   const note = (e: unknown) => { failures++; if (e instanceof BudgetExceededError) budgetExhausted = true; deps.log?.({ event: "error", error: (e as Error).message }); };
-  const cap = HYPOTHESIS_CAP[config.reviewDepth];
-  let hypotheses: Hypothesis[] = [];
-  try { hypotheses = await planHypotheses(deps, files, pack, cap, usage); } catch (e) { note(e); }
-  deps.log?.({ event: "plan", hypotheses: hypotheses.length });
-  const tasks: HuntTask[] = [
-    ...hypotheses.map((h, i) => ({ id: `h${i}`, kind: h.kind, files: [h.file], hypothesis: h })),
-    ...fileGroups(files).map((g, i) => ({ id: `free${i}`, kind: "free-hunt" as const, files: g })),
-  ];
-  const width = opts.concurrency ?? 6;
-  const hunted = await pool(tasks, width, (t) => hunt(deps, t, files, pack, config, usage));
-  const candidates = hunted.flatMap((r) => (r.status === "fulfilled" ? r.value : (note(r.reason), [])));
-  // Diff-anchor rule: candidates must sit on a changed file; dedupe near-identical candidates before paying for verification.
+  const phase = async <T>(name: string, fn: () => Promise<T>, attrs: Record<string, unknown> = {}): Promise<T> => {
+    const s = Date.now(); deps.log?.({ event: "phase_start", phase: name, ...attrs });
+    try { return await fn(); } finally { deps.log?.({ event: "phase_end", phase: name, ms: Date.now() - s, ...attrs }); }
+  };
+  const depth = selectDepth(config.reviewDepth, tierSignals(files)).depth;
+  const cap = HYPOTHESIS_CAP[depth];
+  const width = opts.concurrency ?? TIER_WIDTH[depth];
+  const limit = deps.limit ?? createLimiter(width);
+  const ctx = sharedContext(files, pack);
   const changed = new Set(files.map((f) => f.path));
   const seen = new Set<string>();
-  const unique = candidates.filter((c) => {
-    if (!changed.has(c.location.path)) return false;
-    const k = `${c.location.path}:${Math.floor(c.location.startLine / 4)}:${c.category}`;
-    if (seen.has(k)) return false;
-    seen.add(k); return true;
-  }).sort((a, b) => b.confidence - a.confidence).slice(0, cap + 10);
-  const verified = await pool(unique.filter((c) => c.confidence >= (opts.verifyThreshold ?? 0.3)), width, (c) => verify(deps, c, files, pack, usage));
-  const kept: Candidate[] = [];
-  for (const v of verified) {
-    if (v.status === "rejected") { note(v.reason); continue; }
-    if (v.value?.grounded) kept.push(v.value.finding);
-    deps.log?.({ event: "verdict", keep: v.value?.verdict.keep, grounded: v.value?.grounded, title: v.value?.finding.title });
-  }
-  usage.latencyMs = Date.now() - t0;
-  return { candidates, kept, hypotheses, usage, failures, tasks: tasks.length + 1 + unique.length, budgetExhausted };
+  const candidates: Candidate[] = [], kept: Candidate[] = [];
+  const verifications: Promise<void>[] = [];
+  let toVerify = 0;
+  const threshold = opts.verifyThreshold ?? 0.3;
+
+  const onCandidates = (cs: Candidate[]) => {
+    for (const c of cs) {
+      candidates.push(c);
+      // Diff-anchor rule + incremental dedupe (same key as before) + confidence gate, checked at enqueue time.
+      if (!changed.has(c.location.path)) continue;
+      const k = `${c.location.path}:${Math.floor(c.location.startLine / 4)}:${c.category}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      if (c.confidence < threshold || toVerify >= cap + 10) continue;
+      toVerify++;
+      verifications.push((async () => {
+        const det = deps.deterministic ? await deps.deterministic.catch(() => []) : [];
+        if (det.some((d) => d.path === c.location.path && Math.abs(d.startLine - c.location.startLine) <= 3)) {
+          // Execution already proved a defect here: no frontier verifier call (LATENCY-PLAN §5.2.5).
+          deterministicConfirmed++; kept.push(c);
+          deps.log?.({ event: "verdict", keep: true, grounded: true, title: c.title, via: "deterministic" });
+          deps.log?.({ event: "finding", title: c.title, path: c.location.path, line: c.location.startLine });
+          return;
+        }
+        try {
+          const v = await limit(() => phase("verify", () => verify(deps, c, files, pack, acc, ctx), { path: c.location.path }));
+          if (v?.grounded) { kept.push(v.finding); deps.log?.({ event: "finding", title: v.finding.title, path: v.finding.location.path, line: v.finding.location.startLine }); }
+          deps.log?.({ event: "verdict", keep: v?.verdict.keep, grounded: v?.grounded, title: v?.finding.title });
+        } catch (e) { note(e); }
+      })());
+    }
+  };
+  const runHunt = (t: HuntTask) => limit(() => phase("hunt", () => hunt(deps, t, files, pack, depth, acc, ctx), { task: t.id, kind: t.kind })).then(onCandidates, note);
+
+  const free: HuntTask[] = fileGroups(files).map((g, i) => ({ id: `free${i}`, kind: "free-hunt" as const, files: g }));
+  const freeRuns = free.map(runHunt);
+  // Deterministic survivors (e.g. diff-anchored semgrep hits) are escalated to the verifier like hunter candidates.
+  const seeded = opts.seeds?.then(onCandidates, note);
+  let hypotheses: Hypothesis[] = [];
+  try { hypotheses = await phase("plan", () => planHypotheses(deps, files, pack, cap, acc, ctx.fence)); } catch (e) { note(e); }
+  deps.log?.({ event: "plan", hypotheses: hypotheses.length, width });
+  const tasks: HuntTask[] = hypotheses.map((h, i) => ({ id: `h${i}`, kind: h.kind, files: [h.file], hypothesis: h }));
+  await Promise.all([...freeRuns, ...tasks.map(runHunt), seeded]);
+  // Verifications are only enqueued by hunters, which have all finished: this list is final.
+  await Promise.all(verifications);
+  acc.usage.latencyMs = Date.now() - t0;
+  return { candidates, kept, hypotheses, usage: acc.usage, failures, tasks: tasks.length + free.length + 1 + toVerify, budgetExhausted,
+    cachedTokens: acc.cachedTokens, llmCalls: acc.llmCalls, width, deterministicConfirmed };
 }
