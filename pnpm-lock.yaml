@@ -428,12 +428,18 @@ importers:
       '@review/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@review/indexer-worker':
+        specifier: workspace:*
+        version: link:../indexer-worker
       '@review/models':
         specifier: workspace:*
         version: link:../../packages/models
       '@review/queue':
         specifier: workspace:*
         version: link:../../packages/queue
+      '@review/sandbox-runner':
+        specifier: workspace:*
+        version: link:../sandbox-runner
       '@review/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas
