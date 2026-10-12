@@ -1,0 +1,427 @@
+{
+  "version": "1.0.0",
+  "date": "2026-10-12",
+  "doc": "docs/research/GREPTILE-GAP.md",
+  "labels": {
+    "FACT": "published by cited source or observed reproducibly",
+    "MEASURED": "own experiment in this job, n=10",
+    "PROPOSAL": "design or estimate, unproven"
+  },
+  "benchmark": {
+    "source": "S200",
+    "date_of_run": "2025-07",
+    "cases": 50,
+    "repos": {
+      "sentry": "python",
+      "cal.com": "typescript",
+      "grafana": "go",
+      "keycloak": "java",
+      "discourse": "ruby"
+    },
+    "caught_rule": "explicit line-level PR comment pointing to faulty code and explaining impact; summary-only does not count",
+    "overall": {
+      "greptile": 0.82,
+      "bugbot": 0.58,
+      "copilot": 0.54,
+      "coderabbit": 0.44,
+      "graphite": 0.06
+    },
+    "by_severity": {
+      "critical": {
+        "greptile": 0.58,
+        "bugbot": 0.58,
+        "copilot": 0.5,
+        "coderabbit": 0.33,
+        "graphite": 0.17
+      },
+      "high": {
+        "greptile": 1,
+        "bugbot": 0.64,
+        "copilot": 0.57,
+        "coderabbit": 0.36,
+        "graphite": 0
+      },
+      "medium": {
+        "greptile": 0.89,
+        "bugbot": 0.56,
+        "copilot": 0.78,
+        "coderabbit": 0.56,
+        "graphite": 0.11
+      },
+      "low": {
+        "greptile": 0.87,
+        "bugbot": 0.53,
+        "copilot": 0.87,
+        "coderabbit": 0.53,
+        "graphite": 0
+      }
+    },
+    "greptile_per_repo": {
+      "sentry": 8,
+      "cal.com": 8,
+      "grafana": 8,
+      "keycloak": 8,
+      "discourse": 9
+    }
+  },
+  "our_sentry_run": {
+    "source": "brief",
+    "caught": 3,
+    "of": 10,
+    "model": "deepseek-v4.1-flash",
+    "mode": "diff-only single pass"
+  },
+  "sentry_cases": [
+    {
+      "n": 1,
+      "bug": "Import of non-existent OptimizedCursorPaginator",
+      "severity": "high",
+      "greptile": true,
+      "ours": false,
+      "root_cause": [
+        "no_cross_file_context",
+        "no_execution"
+      ],
+      "fix": [
+        "symbol_resolution",
+        "E0_E1_import_check"
+      ],
+      "disputed": "class is defined in fork head paginator.py:821",
+      "label": "FACT+PROPOSAL"
+    },
+    {
+      "n": 2,
+      "bug": "Negative offset cursor bypasses pagination",
+      "severity": "critical",
+      "greptile": false,
+      "ours": true
+    },
+    {
+      "n": 3,
+      "bug": "sample_rate 0.0 falsy",
+      "severity": "low",
+      "greptile": true,
+      "ours": false,
+      "location": "src/sentry/testutils/factories.py:353",
+      "root_cause": [
+        "single_pass_attention",
+        "model_quality"
+      ],
+      "fix": [
+        "per_hunk_hypothesis_agents",
+        "pattern_lint",
+        "stronger_model"
+      ]
+    },
+    {
+      "n": 4,
+      "bug": "Null ref if github_authenticated_user state missing",
+      "severity": "critical",
+      "greptile": false,
+      "ours": false,
+      "root_cause": [
+        "no_cross_file_context"
+      ],
+      "fix": [
+        "callee_definition_context",
+        "null_safety_agent"
+      ]
+    },
+    {
+      "n": 5,
+      "bug": "Breaking change in error response format",
+      "severity": "critical",
+      "greptile": true,
+      "ours": false,
+      "location": "src/sentry/issues/endpoints/browser_reporting_collector.py",
+      "root_cause": [
+        "large_diff_truncation",
+        "single_pass_attention",
+        "no_caller_context"
+      ],
+      "fix": [
+        "planner_chunking",
+        "api_contract_agent",
+        "caller_search"
+      ]
+    },
+    {
+      "n": 6,
+      "bug": "Metric tag shard vs shards",
+      "severity": "medium",
+      "greptile": true,
+      "ours": false,
+      "location": "src/sentry/spans/consumers/process/flusher.py:199",
+      "root_cause": [
+        "model_quality",
+        "prompt_treats_as_style"
+      ],
+      "fix": [
+        "consistency_agent",
+        "stronger_model",
+        "prompt"
+      ]
+    },
+    {
+      "n": 7,
+      "bug": "Shared mutable default in dataclass",
+      "severity": "medium",
+      "greptile": true,
+      "ours": true
+    },
+    {
+      "n": 8,
+      "bug": "Stale config variable",
+      "severity": "high",
+      "greptile": true,
+      "ours": true
+    },
+    {
+      "n": 9,
+      "bug": "Invalid queue.ShutDown handling",
+      "severity": "high",
+      "greptile": true,
+      "ours": false,
+      "location": "src/sentry/remote_subscriptions/consumers/queue_consumer.py:133",
+      "root_cause": [
+        "benchmark_label_disputed"
+      ],
+      "disputed": "queue.ShutDown exists since Python 3.13 (S216); Sentry pins 3.13.1",
+      "fix": [
+        "version_aware_api_check (would argue valid)"
+      ]
+    },
+    {
+      "n": 10,
+      "bug": "Incomplete impl: subclass only pass",
+      "severity": "high",
+      "greptile": true,
+      "ours": false,
+      "location": "src/sentry/incidents/grouptype.py:11",
+      "root_cause": [
+        "no_cross_file_context",
+        "no_execution"
+      ],
+      "fix": [
+        "base_class_definitions_in_context",
+        "E1_instantiate_check"
+      ]
+    }
+  ],
+  "ablation": {
+    "status": "inconclusive",
+    "label": "FACT",
+    "model": "cx/gpt-5.6-sol",
+    "modes": {
+      "diff": "unified diff only",
+      "ctx": "diff + full post-change contents of changed files"
+    },
+    "scoring_rule": "caught = finding on faulty code naming the ground-truth bug; timeout = no result, never caught",
+    "attempt1": {
+      "models": [
+        "modal/deepseek-ai/DeepSeek-V4.1-Flash",
+        "Openlux/claude-sonnet-5-5",
+        "modal3/zai-org/GLM-5.3"
+      ],
+      "result": "all failed: gateway 503/429 usage limit",
+      "log": "logs/gateway-probe.log, logs/ablation-raw.json"
+    },
+    "log": "logs/ablation2-raw.json",
+    "ground_truth": "logs/sentry-ground-truth.json",
+    "timeout_s": [
+      310,
+      360
+    ],
+    "cases": [
+      {
+        "case": 1,
+        "diff": "timeout",
+        "ctx": "missed"
+      },
+      {
+        "case": 2,
+        "diff": "timeout",
+        "ctx": "timeout"
+      },
+      {
+        "case": 3,
+        "diff": "timeout",
+        "ctx": "timeout"
+      },
+      {
+        "case": 4,
+        "diff": "timeout",
+        "ctx": "timeout"
+      },
+      {
+        "case": 5,
+        "diff": "timeout",
+        "ctx": "timeout"
+      },
+      {
+        "case": 6,
+        "diff": "timeout",
+        "ctx": "timeout"
+      },
+      {
+        "case": 7,
+        "diff": "timeout",
+        "ctx": "timeout"
+      },
+      {
+        "case": 8,
+        "diff": "missed",
+        "ctx": "missed"
+      },
+      {
+        "case": 9,
+        "diff": "timeout",
+        "ctx": "timeout"
+      },
+      {
+        "case": 10,
+        "diff": "caught",
+        "ctx": "timeout"
+      }
+    ],
+    "totals": {
+      "diff": {
+        "caught": 1,
+        "results": 2,
+        "timeouts": 8
+      },
+      "ctx": {
+        "caught": 0,
+        "results": 2,
+        "timeouts": 8
+      },
+      "calls": 20,
+      "returned": 4
+    },
+    "n_per_arm": 2,
+    "conclusion": "n<10 (n=2 per arm); cannot determine whether model quality or missing context drives the misses",
+    "next_step": "PROPOSAL: rerun in P0 harness, timeout >=600s or streaming, 3 seeds, include deepseek-v4.1-flash when quota resets"
+  },
+  "scorecard": [
+    {
+      "id": "C0",
+      "capability": "Benchmark harness + 50-case dataset + judge",
+      "sentry_delta": "0",
+      "full50_cumulative": "~30% baseline (assumed)",
+      "effort": "M 1-1.5wk",
+      "risk": "low"
+    },
+    {
+      "id": "C1",
+      "capability": "Context pack: full files, definitions, base classes, import existence",
+      "sentry_delta": "+2..3",
+      "full50_cumulative": "~50%",
+      "effort": "M 2wk",
+      "risk": "medium"
+    },
+    {
+      "id": "C2",
+      "capability": "Planner + per-hunk hypothesis hunters + tool-grounded verifier",
+      "sentry_delta": "+1..2",
+      "full50_cumulative": "~62%",
+      "effort": "M-L 2-3wk",
+      "risk": "medium"
+    },
+    {
+      "id": "C3",
+      "capability": "Model tiers (standard/frontier for hunters/verifier)",
+      "sentry_delta": "+1 (overlaps C2)",
+      "full50_cumulative": "~72%",
+      "effort": "S 3d",
+      "risk": "low tech, cost"
+    },
+    {
+      "id": "C4",
+      "capability": "Execution E0-E1 compile/type/import/instantiate",
+      "sentry_delta": "+0..1",
+      "full50_cumulative": "~78%",
+      "effort": "L 3-4wk",
+      "risk": "high"
+    },
+    {
+      "id": "C5",
+      "capability": "Execution E2-E3 tests + hypothesis tests",
+      "sentry_delta": "+0..1",
+      "full50_cumulative": "~82%",
+      "effort": "L 4+wk",
+      "risk": "high"
+    },
+    {
+      "id": "C6",
+      "capability": "Per-language checklists + version awareness",
+      "sentry_delta": "0..+1",
+      "full50_cumulative": "+2-4 pts",
+      "effort": "S 1wk",
+      "risk": "low"
+    },
+    {
+      "id": "C7",
+      "capability": "Learning / rules",
+      "sentry_delta": "0",
+      "full50_cumulative": "0 (benchmark uses default settings)",
+      "effort": "M",
+      "risk": "low"
+    },
+    {
+      "id": "C8",
+      "capability": "Calibration + comment budget",
+      "sentry_delta": "0",
+      "full50_cumulative": "0 (precision guard)",
+      "effort": "S",
+      "risk": "low"
+    }
+  ],
+  "phases": [
+    {
+      "id": "P0",
+      "build": [
+        "C0"
+      ],
+      "exit": "50 cases with SHAs; judge vs human agreement >=90% on 20 comments; baseline 3 runs"
+    },
+    {
+      "id": "P1",
+      "build": [
+        "C1",
+        "C6"
+      ],
+      "exit": "context coverage >=90%; sentry >=6/10; full50 >=50%"
+    },
+    {
+      "id": "P2",
+      "build": [
+        "C2",
+        "C8"
+      ],
+      "exit": "sentry >=7/10; full50 >=62%; <=8 comments/PR median; non-target valid rate >=50%"
+    },
+    {
+      "id": "P3",
+      "build": [
+        "C3"
+      ],
+      "exit": "sentry >=8/10; full50 >=72%; median spend <=$0.50/PR"
+    },
+    {
+      "id": "P4",
+      "build": [
+        "C4"
+      ],
+      "exit": "full50 >=78%; no execution-only comment without diff anchor"
+    },
+    {
+      "id": "P5",
+      "build": [
+        "C5",
+        "C7"
+      ],
+      "exit": "full50 >=82% 3-run mean; held-out within 10 pts"
+    }
+  ],
+  "estimates_label": "PROPOSAL"
+}
