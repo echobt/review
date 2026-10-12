@@ -1,0 +1,24 @@
+{
+  "name": "review-platform",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r --workspace-concurrency=1 typecheck",
+    "test": "pnpm -r --workspace-concurrency=1 test",
+    "validate:model": "node --experimental-strip-types scripts/validate-model.ts",
+    "check:mermaid": "node scripts/check-mermaid.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "@types/node": "^24.0.0"
+  },
+  "dependencies": {
+    "@review/core": "workspace:*",
+    "@review/service-common": "workspace:*",
+    "zod": "^4.1.0"
+  }
+}

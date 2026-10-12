@@ -1,0 +1,186 @@
+{
+  "system": {
+    "name": "example-baseline",
+    "version": "0.0.1",
+    "model": "deepseek/deepseek-v4.1-flash"
+  },
+  "rubricVersion": "1.0.0",
+  "datasetVersion": "sample-0.1",
+  "harness": {
+    "commit": "0000000",
+    "command": "node harness/run.ts --dataset datasets/sample-0.1 --runs 3"
+  },
+  "runs": [
+    {
+      "results": [
+        {
+          "caseId": "sample-001",
+          "latencyMs": 4000,
+          "costUsd": 0.012,
+          "findings": [
+            {
+              "category": "bug",
+              "severity": "high",
+              "location": {
+                "path": "src/cart.ts",
+                "startLine": 43,
+                "endLine": 43
+              },
+              "title": "Loop bound reads past end",
+              "confidence": 0.9
+            }
+          ]
+        },
+        {
+          "caseId": "sample-002",
+          "latencyMs": 4800,
+          "costUsd": 0.02,
+          "findings": [
+            {
+              "category": "security",
+              "severity": "critical",
+              "location": {
+                "path": "src/db/users.ts",
+                "startLine": 17,
+                "endLine": 18
+              },
+              "title": "SQL injection",
+              "confidence": 0.95
+            },
+            {
+              "category": "style",
+              "severity": "low",
+              "location": {
+                "path": "src/db/users.ts",
+                "startLine": 3,
+                "endLine": 3
+              },
+              "title": "Unused import",
+              "confidence": 0.4
+            }
+          ]
+        },
+        {
+          "caseId": "sample-003",
+          "latencyMs": 3800,
+          "costUsd": 0.008,
+          "findings": []
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "caseId": "sample-001",
+          "latencyMs": 4200,
+          "costUsd": 0.012,
+          "findings": [
+            {
+              "category": "bug",
+              "severity": "high",
+              "location": {
+                "path": "src/cart.ts",
+                "startLine": 43,
+                "endLine": 43
+              },
+              "title": "Loop bound reads past end",
+              "confidence": 0.9
+            }
+          ]
+        },
+        {
+          "caseId": "sample-002",
+          "latencyMs": 5000,
+          "costUsd": 0.02,
+          "findings": [
+            {
+              "category": "security",
+              "severity": "critical",
+              "location": {
+                "path": "src/db/users.ts",
+                "startLine": 17,
+                "endLine": 18
+              },
+              "title": "SQL injection",
+              "confidence": 0.95
+            },
+            {
+              "category": "style",
+              "severity": "low",
+              "location": {
+                "path": "src/db/users.ts",
+                "startLine": 3,
+                "endLine": 3
+              },
+              "title": "Unused import",
+              "confidence": 0.4
+            }
+          ]
+        },
+        {
+          "caseId": "sample-003",
+          "latencyMs": 4000,
+          "costUsd": 0.008,
+          "findings": []
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "caseId": "sample-001",
+          "latencyMs": 3900,
+          "costUsd": 0.012,
+          "findings": [
+            {
+              "category": "bug",
+              "severity": "high",
+              "location": {
+                "path": "src/cart.ts",
+                "startLine": 43,
+                "endLine": 43
+              },
+              "title": "Loop bound reads past end",
+              "confidence": 0.9
+            }
+          ]
+        },
+        {
+          "caseId": "sample-002",
+          "latencyMs": 4700,
+          "costUsd": 0.02,
+          "findings": [
+            {
+              "category": "security",
+              "severity": "critical",
+              "location": {
+                "path": "src/db/users.ts",
+                "startLine": 17,
+                "endLine": 18
+              },
+              "title": "SQL injection",
+              "confidence": 0.95
+            },
+            {
+              "category": "style",
+              "severity": "low",
+              "location": {
+                "path": "src/db/users.ts",
+                "startLine": 3,
+                "endLine": 3
+              },
+              "title": "Unused import",
+              "confidence": 0.4
+            }
+          ]
+        },
+        {
+          "caseId": "sample-003",
+          "latencyMs": 3700,
+          "costUsd": 0.008,
+          "findings": []
+        }
+      ]
+    }
+  ]
+}
