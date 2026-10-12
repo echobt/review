@@ -242,6 +242,37 @@ importers:
         specifier: ^5.0.3
         version: 5.0.3(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(vite@8.3.4(@types/node@24.19.2))
 
+  scripts/bench:
+    dependencies:
+      '@review/agent-runner':
+        specifier: workspace:*
+        version: link:../../services/agent-runner
+      '@review/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@review/models':
+        specifier: workspace:*
+        version: link:../../packages/models
+      '@review/queue':
+        specifier: workspace:*
+        version: link:../../packages/queue
+      '@review/review-orchestrator':
+        specifier: workspace:*
+        version: link:../../services/review-orchestrator
+      zod:
+        specifier: ^4.1.0
+        version: 4.6.6
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^5.0.3
+        version: 5.0.3(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(vite@8.3.4(@types/node@24.19.2))
+
   services/agent-runner:
     dependencies:
       '@review/core':
@@ -428,12 +459,18 @@ importers:
       '@review/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@review/indexer-worker':
+        specifier: workspace:*
+        version: link:../indexer-worker
       '@review/models':
         specifier: workspace:*
         version: link:../../packages/models
       '@review/queue':
         specifier: workspace:*
         version: link:../../packages/queue
+      '@review/sandbox-runner':
+        specifier: workspace:*
+        version: link:../sandbox-runner
       '@review/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas

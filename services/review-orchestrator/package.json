@@ -20,7 +20,9 @@
     "@review/crypto": "workspace:*",
     "@review/schemas": "workspace:*",
     "zod": "^4.1.0",
-    "@review/agent-runner": "workspace:*"
+    "@review/agent-runner": "workspace:*",
+    "@review/indexer-worker": "workspace:*",
+    "@review/sandbox-runner": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

@@ -21,15 +21,37 @@ export const RoutingPolicy = z.object({
 });
 export type RoutingPolicy = z.infer<typeof RoutingPolicy>;
 
-/** Default policy (ADR 0006). Model ids are config, not code; tenants override per agent kind via TenantConfig.tierOverrides. */
-export const defaultPolicy: RoutingPolicy = RoutingPolicy.parse({
-  tiers: {
-    small: [{ provider: "openrouter", model: "deepseek/deepseek-v4.1-flash", inputUsdPerMTok: 0.1, outputUsdPerMTok: 0.4 }],
-    medium: [{ provider: "openrouter", model: "deepseek/deepseek-v4.1-flash", inputUsdPerMTok: 0.1, outputUsdPerMTok: 0.4 }],
-    large: [{ provider: "openrouter", model: "deepseek/deepseek-v4.1-flash", inputUsdPerMTok: 0.1, outputUsdPerMTok: 0.4 }],
-  },
-  embed: [{ provider: "openrouter", model: "openai/text-embedding-3-small", inputUsdPerMTok: 0.02, outputUsdPerMTok: 0, dimensions: 1024 }],
-});
+/** Tier defaults (ADR 0006 + GREPTILE-GAP §6.3): three distinct models, cheap < standard < frontier. Prices are USD per 1M tokens. */
+export const DEFAULT_TIER_MODELS = {
+  small: { model: "deepseek/deepseek-v4.1-flash", inputUsdPerMTok: 0.1, outputUsdPerMTok: 0.4 },
+  medium: { model: "anthropic/claude-sonnet-4.5", inputUsdPerMTok: 3, outputUsdPerMTok: 15 },
+  large: { model: "openai/gpt-5", inputUsdPerMTok: 1.25, outputUsdPerMTok: 10 },
+} as const;
+
+/**
+ * Policy from env (model ids are config, never code): MODEL_PROVIDER (default openrouter), MODEL_SMALL / MODEL_MEDIUM / MODEL_LARGE
+ * (comma-separated = fallback chain),
+ * optional MODEL_<TIER>_PRICE="in,out" (USD per 1M tokens; defaults to the tier default price). Tenants still override per agent kind.
+ */
+export function policyFromEnv(env: NodeJS.ProcessEnv = process.env): RoutingPolicy {
+  const provider = env.MODEL_PROVIDER || "openrouter";
+  const target = (tier: ModelTier) => {
+    const d = DEFAULT_TIER_MODELS[tier];
+    const key = `MODEL_${tier.toUpperCase()}`;
+    const price = env[`${key}_PRICE`]?.split(",").map(Number);
+    const ok = price?.length === 2 && price.every((x) => Number.isFinite(x) && x >= 0);
+    // Comma-separated ids form the tier's fallback chain (tried in order, each behind its own circuit breaker).
+    const models = (env[key] || d.model).split(",").map((m) => m.trim()).filter(Boolean);
+    return models.map((model) => ({ provider, model, inputUsdPerMTok: ok ? price[0]! : d.inputUsdPerMTok, outputUsdPerMTok: ok ? price[1]! : d.outputUsdPerMTok }));
+  };
+  return RoutingPolicy.parse({
+    tiers: { small: target("small"), medium: target("medium"), large: target("large") },
+    embed: [{ provider: env.EMBED_PROVIDER || "openrouter", model: env.EMBED_MODEL || "openai/text-embedding-3-small", inputUsdPerMTok: 0.02, outputUsdPerMTok: 0, dimensions: 1024 }],
+  });
+}
+
+/** Default policy without env overrides. */
+export const defaultPolicy: RoutingPolicy = policyFromEnv({});
 
 export interface Attempt { provider: string; model: string; tier: ModelTier; ok: boolean; error?: string; costUsd: number; latencyMs: number }
 export interface RoutedResult extends ChatResult { provider: string; tier: ModelTier; costUsd: number; attempts: Attempt[] }

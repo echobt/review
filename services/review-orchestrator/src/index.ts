@@ -3,3 +3,7 @@ export * from "./merge.ts";
 export * from "./github.ts";
 export * from "./orchestrator.ts";
 export * from "./handler.ts";
+export * from "./pack.ts";
+export * from "./languages.ts";
+export * from "./review.ts";
+export * from "./learning.ts";

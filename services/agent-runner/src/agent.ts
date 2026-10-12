@@ -5,11 +5,11 @@ import { FindingDraftList, type FindingDraft } from "@review/schemas";
 import { BudgetExceededError, type Attempt, type ModelRouter } from "@review/models";
 import { recordUsage, withTenant, type Database } from "@review/db";
 
-/** Default tier per agent kind (ADR 0006); TenantConfig.tierOverrides wins. */
+/** Default tier per agent kind (ADR 0006, GREPTILE-GAP §6.3): planner cheap, hunters standard, verifier/judge frontier. TenantConfig.tierOverrides wins. */
 export const DEFAULT_TIER: Record<AgentKind, ModelTier> = {
   planner: "small", summarizer: "small", "semgrep-triage": "small",
-  "bug-hunter": "medium", security: "medium", "cross-file": "medium", "test-gen": "medium", verifier: "medium",
-  judge: "large",
+  "bug-hunter": "medium", security: "medium", "cross-file": "medium", "test-gen": "medium",
+  verifier: "large", judge: "large",
 };
 
 /** What an agent sees. Everything in here is untrusted repository content except rule text (tenant-authored). */

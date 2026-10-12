@@ -1,0 +1,1163 @@
+{
+ "source": "https://www.greptile.com/benchmarks",
+ "accessed": "2026-10-12",
+ "tools": [
+  "greptile",
+  "copilot",
+  "coderabbit",
+  "cursor",
+  "graphite"
+ ],
+ "cases": [
+  {
+   "id": "sentry-01",
+   "repo": "sentry",
+   "language": "python",
+   "license": "BUSL-1.1",
+   "forkPr": 1,
+   "toolPrs": {
+    "greptile": 1,
+    "copilot": 1,
+    "coderabbit": 1,
+    "cursor": 1,
+    "graphite": 1
+   },
+   "bug": "Importing non-existent OptimizedCursorPaginator",
+   "severity": "high",
+   "published": {
+    "greptile": true,
+    "copilot": false,
+    "coderabbit": false,
+    "cursor": false,
+    "graphite": false
+   }
+  },
+  {
+   "id": "sentry-02",
+   "repo": "sentry",
+   "language": "python",
+   "license": "BUSL-1.1",
+   "forkPr": 2,
+   "toolPrs": {
+    "greptile": 2,
+    "copilot": 10,
+    "coderabbit": 2,
+    "cursor": 2,
+    "graphite": 2
+   },
+   "bug": "Negative offset cursor manipulation bypasses pagination boundaries",
+   "severity": "critical",
+   "published": {
+    "greptile": false,
+    "copilot": false,
+    "coderabbit": true,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "sentry-03",
+   "repo": "sentry",
+   "language": "python",
+   "license": "BUSL-1.1",
+   "forkPr": 3,
+   "toolPrs": {
+    "greptile": 3,
+    "copilot": 2,
+    "coderabbit": 3,
+    "cursor": 3,
+    "graphite": 3
+   },
+   "bug": "sample_rate = 0.0 is falsy and skipped",
+   "severity": "low",
+   "published": {
+    "greptile": true,
+    "copilot": false,
+    "coderabbit": false,
+    "cursor": false,
+    "graphite": false
+   }
+  },
+  {
+   "id": "sentry-04",
+   "repo": "sentry",
+   "language": "python",
+   "license": "BUSL-1.1",
+   "forkPr": 4,
+   "toolPrs": {
+    "greptile": 4,
+    "copilot": 3,
+    "coderabbit": 4,
+    "cursor": 4,
+    "graphite": 4
+   },
+   "bug": "Null reference if github_authenticated_user state is missing",
+   "severity": "critical",
+   "published": {
+    "greptile": false,
+    "copilot": true,
+    "coderabbit": false,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "sentry-05",
+   "repo": "sentry",
+   "language": "python",
+   "license": "BUSL-1.1",
+   "forkPr": 5,
+   "toolPrs": {
+    "greptile": 5,
+    "copilot": 4,
+    "coderabbit": 5,
+    "cursor": 5,
+    "graphite": 5
+   },
+   "bug": "Breaking changes in error response format",
+   "severity": "critical",
+   "published": {
+    "greptile": true,
+    "copilot": false,
+    "coderabbit": false,
+    "cursor": false,
+    "graphite": false
+   }
+  },
+  {
+   "id": "sentry-06",
+   "repo": "sentry",
+   "language": "python",
+   "license": "BUSL-1.1",
+   "forkPr": 6,
+   "toolPrs": {
+    "greptile": 6,
+    "copilot": 5,
+    "coderabbit": 6,
+    "cursor": 6,
+    "graphite": 6
+   },
+   "bug": "Inconsistent metric tagging with 'shard' and 'shards'",
+   "severity": "medium",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": false,
+    "cursor": false,
+    "graphite": false
+   }
+  },
+  {
+   "id": "sentry-07",
+   "repo": "sentry",
+   "language": "python",
+   "license": "BUSL-1.1",
+   "forkPr": 7,
+   "toolPrs": {
+    "greptile": 7,
+    "copilot": 6,
+    "coderabbit": 7,
+    "cursor": 7,
+    "graphite": 7
+   },
+   "bug": "Shared mutable default in dataclass timestamp",
+   "severity": "medium",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": true,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "sentry-08",
+   "repo": "sentry",
+   "language": "python",
+   "license": "BUSL-1.1",
+   "forkPr": 8,
+   "toolPrs": {
+    "greptile": 8,
+    "copilot": 7,
+    "coderabbit": 8,
+    "cursor": 8,
+    "graphite": 8
+   },
+   "bug": "Using stale config variable instead of updated one",
+   "severity": "high",
+   "published": {
+    "greptile": true,
+    "copilot": false,
+    "coderabbit": true,
+    "cursor": false,
+    "graphite": false
+   }
+  },
+  {
+   "id": "sentry-09",
+   "repo": "sentry",
+   "language": "python",
+   "license": "BUSL-1.1",
+   "forkPr": 9,
+   "toolPrs": {
+    "greptile": 9,
+    "copilot": 8,
+    "coderabbit": 9,
+    "cursor": 9,
+    "graphite": 9
+   },
+   "bug": "Invalid queue.ShutDown exception handling",
+   "severity": "high",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": false,
+    "cursor": false,
+    "graphite": false
+   }
+  },
+  {
+   "id": "sentry-10",
+   "repo": "sentry",
+   "language": "python",
+   "license": "BUSL-1.1",
+   "forkPr": 10,
+   "toolPrs": {
+    "greptile": 10,
+    "copilot": 9,
+    "coderabbit": 10,
+    "cursor": 10,
+    "graphite": 10
+   },
+   "bug": "Incomplete implementation (only contains pass)",
+   "severity": "high",
+   "published": {
+    "greptile": true,
+    "copilot": false,
+    "coderabbit": false,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "calcom-01",
+   "repo": "cal.com",
+   "language": "typescript",
+   "license": "AGPL-3.0",
+   "forkPr": 2,
+   "toolPrs": {
+    "greptile": 2,
+    "copilot": 2,
+    "coderabbit": 2,
+    "cursor": 2,
+    "graphite": 2
+   },
+   "bug": "Async callbacks in forEach creates unhandled promise rejections",
+   "severity": "low",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": true,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "calcom-02",
+   "repo": "cal.com",
+   "language": "typescript",
+   "license": "AGPL-3.0",
+   "forkPr": 3,
+   "toolPrs": {
+    "greptile": 3,
+    "copilot": 3,
+    "coderabbit": 3,
+    "cursor": 3,
+    "graphite": 3
+   },
+   "bug": "Backup codes not invalidated after use",
+   "severity": "critical",
+   "published": {
+    "greptile": false,
+    "copilot": false,
+    "coderabbit": true,
+    "cursor": false,
+    "graphite": false
+   }
+  },
+  {
+   "id": "calcom-03",
+   "repo": "cal.com",
+   "language": "typescript",
+   "license": "AGPL-3.0",
+   "forkPr": 4,
+   "toolPrs": {
+    "greptile": 4,
+    "copilot": 4,
+    "coderabbit": 4,
+    "cursor": 4,
+    "graphite": 4
+   },
+   "bug": "Null reference error if array is empty",
+   "severity": "medium",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": false,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "calcom-04",
+   "repo": "cal.com",
+   "language": "typescript",
+   "license": "AGPL-3.0",
+   "forkPr": 5,
+   "toolPrs": {
+    "greptile": 5,
+    "copilot": 5,
+    "coderabbit": 5,
+    "cursor": 5,
+    "graphite": 5
+   },
+   "bug": "Potential SQL injection risk in raw SQL query construction",
+   "severity": "critical",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": false,
+    "cursor": false,
+    "graphite": false
+   }
+  },
+  {
+   "id": "calcom-05",
+   "repo": "cal.com",
+   "language": "typescript",
+   "license": "AGPL-3.0",
+   "forkPr": 6,
+   "toolPrs": {
+    "greptile": 6,
+    "copilot": 6,
+    "coderabbit": 6,
+    "cursor": 6,
+    "graphite": 6
+   },
+   "bug": "Missing database cleanup when immediateDelete is true",
+   "severity": "high",
+   "published": {
+    "greptile": true,
+    "copilot": false,
+    "coderabbit": false,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "calcom-06",
+   "repo": "cal.com",
+   "language": "typescript",
+   "license": "AGPL-3.0",
+   "forkPr": 7,
+   "toolPrs": {
+    "greptile": 7,
+    "copilot": 7,
+    "coderabbit": 7,
+    "cursor": 7,
+    "graphite": 7
+   },
+   "bug": "Incorrect end time calculation using slotStartTime instead of slotEndTime",
+   "severity": "medium",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": true,
+    "cursor": false,
+    "graphite": false
+   }
+  },
+  {
+   "id": "calcom-07",
+   "repo": "cal.com",
+   "language": "typescript",
+   "license": "AGPL-3.0",
+   "forkPr": 8,
+   "toolPrs": {
+    "greptile": 8,
+    "copilot": 8,
+    "coderabbit": 8,
+    "cursor": 8,
+    "graphite": 8
+   },
+   "bug": "Timing attack vulnerability using direct string comparison",
+   "severity": "critical",
+   "published": {
+    "greptile": true,
+    "copilot": false,
+    "coderabbit": false,
+    "cursor": false,
+    "graphite": false
+   }
+  },
+  {
+   "id": "calcom-08",
+   "repo": "cal.com",
+   "language": "typescript",
+   "license": "AGPL-3.0",
+   "forkPr": 9,
+   "toolPrs": {
+    "greptile": 9,
+    "copilot": 9,
+    "coderabbit": 9,
+    "cursor": 9,
+    "graphite": 9
+   },
+   "bug": "OR condition causes deletion of all workflow reminders",
+   "severity": "high",
+   "published": {
+    "greptile": false,
+    "copilot": true,
+    "coderabbit": true,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "calcom-09",
+   "repo": "cal.com",
+   "language": "typescript",
+   "license": "AGPL-3.0",
+   "forkPr": 10,
+   "toolPrs": {
+    "greptile": 10,
+    "copilot": 10,
+    "coderabbit": 10,
+    "cursor": 10,
+    "graphite": 10
+   },
+   "bug": "Case sensitivity bypass in email blacklist",
+   "severity": "high",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": false,
+    "cursor": false,
+    "graphite": false
+   }
+  },
+  {
+   "id": "calcom-10",
+   "repo": "cal.com",
+   "language": "typescript",
+   "license": "AGPL-3.0",
+   "forkPr": 11,
+   "toolPrs": {
+    "greptile": 11,
+    "copilot": 11,
+    "coderabbit": 11,
+    "cursor": 11,
+    "graphite": 11
+   },
+   "bug": "Inaccurate cache status tracking due to unreliable updatedAt field",
+   "severity": "low",
+   "published": {
+    "greptile": true,
+    "copilot": false,
+    "coderabbit": false,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "grafana-01",
+   "repo": "grafana",
+   "language": "go",
+   "license": "AGPL-3.0",
+   "forkPr": 1,
+   "toolPrs": {
+    "greptile": 1,
+    "copilot": 1,
+    "coderabbit": 1,
+    "cursor": 1,
+    "graphite": 1
+   },
+   "bug": "Race condition in CreateOrUpdateDevice method",
+   "severity": "high",
+   "published": {
+    "greptile": true,
+    "copilot": false,
+    "coderabbit": false,
+    "cursor": false,
+    "graphite": false
+   }
+  },
+  {
+   "id": "grafana-02",
+   "repo": "grafana",
+   "language": "go",
+   "license": "AGPL-3.0",
+   "forkPr": 2,
+   "toolPrs": {
+    "greptile": 2,
+    "copilot": 2,
+    "coderabbit": 2,
+    "cursor": 2,
+    "graphite": 2
+   },
+   "bug": "Cache entries without expiration causing permanent permission denials",
+   "severity": "high",
+   "published": {
+    "greptile": false,
+    "copilot": false,
+    "coderabbit": false,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "grafana-03",
+   "repo": "grafana",
+   "language": "go",
+   "license": "AGPL-3.0",
+   "forkPr": 3,
+   "toolPrs": {
+    "greptile": 3,
+    "copilot": 3,
+    "coderabbit": 3,
+    "cursor": 3,
+    "graphite": 3
+   },
+   "bug": "Undefined endpoint constants causing compilation errors",
+   "severity": "critical",
+   "published": {
+    "greptile": true,
+    "copilot": false,
+    "coderabbit": false,
+    "cursor": false,
+    "graphite": false
+   }
+  },
+  {
+   "id": "grafana-04",
+   "repo": "grafana",
+   "language": "go",
+   "license": "AGPL-3.0",
+   "forkPr": 4,
+   "toolPrs": {
+    "greptile": 4,
+    "copilot": 4,
+    "coderabbit": 4,
+    "cursor": 4,
+    "graphite": 4
+   },
+   "bug": "Double interpolation risk",
+   "severity": "critical",
+   "published": {
+    "greptile": false,
+    "copilot": true,
+    "coderabbit": false,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "grafana-05",
+   "repo": "grafana",
+   "language": "go",
+   "license": "AGPL-3.0",
+   "forkPr": 5,
+   "toolPrs": {
+    "greptile": 5,
+    "copilot": 5,
+    "coderabbit": 5,
+    "cursor": 5,
+    "graphite": 5
+   },
+   "bug": "Missing key prop causing React rendering issues",
+   "severity": "medium",
+   "published": {
+    "greptile": true,
+    "copilot": false,
+    "coderabbit": true,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "grafana-06",
+   "repo": "grafana",
+   "language": "go",
+   "license": "AGPL-3.0",
+   "forkPr": 6,
+   "toolPrs": {
+    "greptile": 6,
+    "copilot": 6,
+    "coderabbit": 6,
+    "cursor": 6,
+    "graphite": 6
+   },
+   "bug": "Incorrect metrics recording methods causing misleading performance tracking",
+   "severity": "medium",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": true,
+    "cursor": true,
+    "graphite": true
+   }
+  },
+  {
+   "id": "grafana-07",
+   "repo": "grafana",
+   "language": "go",
+   "license": "AGPL-3.0",
+   "forkPr": 7,
+   "toolPrs": {
+    "greptile": 7,
+    "copilot": 7,
+    "coderabbit": 7,
+    "cursor": 7,
+    "graphite": 7
+   },
+   "bug": "Incorrect error level logging",
+   "severity": "low",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": true,
+    "cursor": false,
+    "graphite": true
+   }
+  },
+  {
+   "id": "grafana-08",
+   "repo": "grafana",
+   "language": "go",
+   "license": "AGPL-3.0",
+   "forkPr": 8,
+   "toolPrs": {
+    "greptile": 8,
+    "copilot": 8,
+    "coderabbit": 8,
+    "cursor": 8,
+    "graphite": 8
+   },
+   "bug": "Deadlock potential during concurrent annotation deletion operations",
+   "severity": "high",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": true,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "grafana-09",
+   "repo": "grafana",
+   "language": "go",
+   "license": "AGPL-3.0",
+   "forkPr": 9,
+   "toolPrs": {
+    "greptile": 9,
+    "copilot": 9,
+    "coderabbit": 9,
+    "cursor": 9,
+    "graphite": 9
+   },
+   "bug": "enableSqlExpressions function always returns false, disabling SQL functionality",
+   "severity": "critical",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": true,
+    "cursor": true,
+    "graphite": true
+   }
+  },
+  {
+   "id": "grafana-10",
+   "repo": "grafana",
+   "language": "go",
+   "license": "AGPL-3.0",
+   "forkPr": 10,
+   "toolPrs": {
+    "greptile": 10,
+    "copilot": 10,
+    "coderabbit": 10,
+    "cursor": 10,
+    "graphite": 10
+   },
+   "bug": "Race condition in cache locking",
+   "severity": "high",
+   "published": {
+    "greptile": true,
+    "copilot": false,
+    "coderabbit": false,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "keycloak-01",
+   "repo": "keycloak",
+   "language": "java",
+   "license": "Apache-2.0",
+   "forkPr": 1,
+   "toolPrs": {
+    "greptile": 1,
+    "copilot": 1,
+    "coderabbit": 1,
+    "cursor": 1,
+    "graphite": 1
+   },
+   "bug": "ConditionalPasskeysEnabled() called without UserModel parameter",
+   "severity": "medium",
+   "published": {
+    "greptile": true,
+    "copilot": false,
+    "coderabbit": false,
+    "cursor": false,
+    "graphite": false
+   }
+  },
+  {
+   "id": "keycloak-02",
+   "repo": "keycloak",
+   "language": "java",
+   "license": "Apache-2.0",
+   "forkPr": 2,
+   "toolPrs": {
+    "greptile": 2,
+    "copilot": 2,
+    "coderabbit": 2,
+    "cursor": 2,
+    "graphite": 2
+   },
+   "bug": "Recursive caching call using session instead of delegate",
+   "severity": "critical",
+   "published": {
+    "greptile": true,
+    "copilot": false,
+    "coderabbit": false,
+    "cursor": false,
+    "graphite": false
+   }
+  },
+  {
+   "id": "keycloak-03",
+   "repo": "keycloak",
+   "language": "java",
+   "license": "Apache-2.0",
+   "forkPr": 3,
+   "toolPrs": {
+    "greptile": 3,
+    "copilot": 3,
+    "coderabbit": 3,
+    "cursor": 3,
+    "graphite": 3
+   },
+   "bug": "Returns wrong provider (default keystore instead of BouncyCastle)",
+   "severity": "high",
+   "published": {
+    "greptile": true,
+    "copilot": false,
+    "coderabbit": true,
+    "cursor": false,
+    "graphite": false
+   }
+  },
+  {
+   "id": "keycloak-04",
+   "repo": "keycloak",
+   "language": "java",
+   "license": "Apache-2.0",
+   "forkPr": 4,
+   "toolPrs": {
+    "greptile": 4,
+    "copilot": 4,
+    "coderabbit": 4,
+    "cursor": 4,
+    "graphite": 4
+   },
+   "bug": "Incorrect method call for exit codes",
+   "severity": "medium",
+   "published": {
+    "greptile": false,
+    "copilot": false,
+    "coderabbit": false,
+    "cursor": false,
+    "graphite": false
+   }
+  },
+  {
+   "id": "keycloak-05",
+   "repo": "keycloak",
+   "language": "java",
+   "license": "Apache-2.0",
+   "forkPr": 5,
+   "toolPrs": {
+    "greptile": 5,
+    "copilot": 5,
+    "coderabbit": 5,
+    "cursor": 5,
+    "graphite": 5
+   },
+   "bug": "Inconsistent feature flag bug causing orphaned permissions",
+   "severity": "high",
+   "published": {
+    "greptile": false,
+    "copilot": false,
+    "coderabbit": false,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "keycloak-06",
+   "repo": "keycloak",
+   "language": "java",
+   "license": "Apache-2.0",
+   "forkPr": 6,
+   "toolPrs": {
+    "greptile": 6,
+    "copilot": 6,
+    "coderabbit": 6,
+    "cursor": 6,
+    "graphite": 6
+   },
+   "bug": "Incorrect permission check in canManage() method",
+   "severity": "high",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": true,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "keycloak-07",
+   "repo": "keycloak",
+   "language": "java",
+   "license": "Apache-2.0",
+   "forkPr": 7,
+   "toolPrs": {
+    "greptile": 7,
+    "copilot": 7,
+    "coderabbit": 7,
+    "cursor": 7,
+    "graphite": 7
+   },
+   "bug": "Lithuanian translation files contain Italian text",
+   "severity": "low",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": true,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "keycloak-08",
+   "repo": "keycloak",
+   "language": "java",
+   "license": "Apache-2.0",
+   "forkPr": 8,
+   "toolPrs": {
+    "greptile": 8,
+    "copilot": 8,
+    "coderabbit": 8,
+    "cursor": 8,
+    "graphite": 8
+   },
+   "bug": "Wrong parameter in null check (grantType vs. rawTokenId)",
+   "severity": "critical",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": true,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "keycloak-09",
+   "repo": "keycloak",
+   "language": "java",
+   "license": "Apache-2.0",
+   "forkPr": 9,
+   "toolPrs": {
+    "greptile": 9,
+    "copilot": 9,
+    "coderabbit": 9,
+    "cursor": 9,
+    "graphite": 9
+   },
+   "bug": "Unsafe raw List deserialization without type safety",
+   "severity": "medium",
+   "published": {
+    "greptile": true,
+    "copilot": false,
+    "coderabbit": true,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "keycloak-10",
+   "repo": "keycloak",
+   "language": "java",
+   "license": "Apache-2.0",
+   "forkPr": 10,
+   "toolPrs": {
+    "greptile": 10,
+    "copilot": 10,
+    "coderabbit": 10,
+    "cursor": 10,
+    "graphite": 10
+   },
+   "bug": "Missing null check causing NullPointerException",
+   "severity": "critical",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": false,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "discourse-01",
+   "repo": "discourse",
+   "language": "ruby",
+   "license": "GPL-2.0",
+   "forkPr": 1,
+   "toolPrs": {
+    "greptile": 1,
+    "copilot": 1,
+    "coderabbit": 1,
+    "cursor": 1,
+    "graphite": 1
+   },
+   "bug": "Method overwriting causing parameter mismatch",
+   "severity": "medium",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": true,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "discourse-02",
+   "repo": "discourse",
+   "language": "ruby",
+   "license": "GPL-2.0",
+   "forkPr": 2,
+   "toolPrs": {
+    "greptile": 2,
+    "copilot": 2,
+    "coderabbit": 2,
+    "cursor": 2,
+    "graphite": 2
+   },
+   "bug": "Nil reference non-existent TopicUser",
+   "severity": "high",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": true,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "discourse-03",
+   "repo": "discourse",
+   "language": "ruby",
+   "license": "GPL-2.0",
+   "forkPr": 3,
+   "toolPrs": {
+    "greptile": 3,
+    "copilot": 3,
+    "coderabbit": 3,
+    "cursor": 3,
+    "graphite": 3
+   },
+   "bug": "BlockedEmail.should_block? modifies DB during read",
+   "severity": "critical",
+   "published": {
+    "greptile": true,
+    "copilot": false,
+    "coderabbit": false,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "discourse-04",
+   "repo": "discourse",
+   "language": "ruby",
+   "license": "GPL-2.0",
+   "forkPr": 4,
+   "toolPrs": {
+    "greptile": 4,
+    "copilot": 4,
+    "coderabbit": 4,
+    "cursor": 4,
+    "graphite": 4
+   },
+   "bug": "SSRF vulnerability using open(url) without validation",
+   "severity": "critical",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": true,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "discourse-05",
+   "repo": "discourse",
+   "language": "ruby",
+   "license": "GPL-2.0",
+   "forkPr": 5,
+   "toolPrs": {
+    "greptile": 5,
+    "copilot": 5,
+    "coderabbit": 5,
+    "cursor": 5,
+    "graphite": 5
+   },
+   "bug": "Mixing float: left with flexbox causes layout issues",
+   "severity": "low",
+   "published": {
+    "greptile": false,
+    "copilot": false,
+    "coderabbit": true,
+    "cursor": false,
+    "graphite": false
+   }
+  },
+  {
+   "id": "discourse-06",
+   "repo": "discourse",
+   "language": "ruby",
+   "license": "GPL-2.0",
+   "forkPr": 6,
+   "toolPrs": {
+    "greptile": 6,
+    "copilot": 6,
+    "coderabbit": 6,
+    "cursor": 6,
+    "graphite": 6
+   },
+   "bug": "String mutation with << operator",
+   "severity": "medium",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": false,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "discourse-07",
+   "repo": "discourse",
+   "language": "ruby",
+   "license": "GPL-2.0",
+   "forkPr": 7,
+   "toolPrs": {
+    "greptile": 7,
+    "copilot": 7,
+    "coderabbit": 7,
+    "cursor": 7,
+    "graphite": 7
+   },
+   "bug": "Inconsistent theme color lightness affects visibility",
+   "severity": "low",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": true,
+    "cursor": true,
+    "graphite": false
+   }
+  },
+  {
+   "id": "discourse-08",
+   "repo": "discourse",
+   "language": "ruby",
+   "license": "GPL-2.0",
+   "forkPr": 8,
+   "toolPrs": {
+    "greptile": 8,
+    "copilot": 8,
+    "coderabbit": 8,
+    "cursor": 8,
+    "graphite": 8
+   },
+   "bug": "Race conditions in async member loading",
+   "severity": "high",
+   "published": {
+    "greptile": true,
+    "copilot": false,
+    "coderabbit": false,
+    "cursor": false,
+    "graphite": false
+   }
+  },
+  {
+   "id": "discourse-09",
+   "repo": "discourse",
+   "language": "ruby",
+   "license": "GPL-2.0",
+   "forkPr": 9,
+   "toolPrs": {
+    "greptile": 9,
+    "copilot": 9,
+    "coderabbit": 9,
+    "cursor": 9,
+    "graphite": 9
+   },
+   "bug": "Thread-safety issue with lazy @loaded_locales",
+   "severity": "high",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": false,
+    "cursor": false,
+    "graphite": false
+   }
+  },
+  {
+   "id": "discourse-10",
+   "repo": "discourse",
+   "language": "ruby",
+   "license": "GPL-2.0",
+   "forkPr": 10,
+   "toolPrs": {
+    "greptile": 10,
+    "copilot": 10,
+    "coderabbit": 10,
+    "cursor": 10,
+    "graphite": 10
+   },
+   "bug": "NoMethodError before_validation in EmbeddableHost",
+   "severity": "critical",
+   "published": {
+    "greptile": true,
+    "copilot": true,
+    "coderabbit": false,
+    "cursor": true,
+    "graphite": false
+   }
+  }
+ ]
+}

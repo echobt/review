@@ -11,7 +11,15 @@ import { chunkFile, type Chunk } from "./chunk.ts";
 import { detectLanguage, parseSource, type ParsedFile } from "./parse.ts";
 
 export interface RepoFile { path: string; blobSha: string; size?: number }
-export interface RepoSource { listFiles(commitSha: string): Promise<RepoFile[]>; readBlob(blobSha: string): Promise<Buffer> }
+export interface GrepHit { path: string; line: number; text: string }
+/** globs: git pathspec globs (e.g. "*.py") limiting the search. */
+export interface GrepOptions { maxHits?: number; ignoreCase?: boolean; globs?: string[] }
+export interface RepoSource {
+  listFiles(commitSha: string): Promise<RepoFile[]>;
+  readBlob(blobSha: string): Promise<Buffer>;
+  /** Extended-regex line search at a commit (optional; LocalCodeIndex falls back to scanning files). */
+  grep?(commitSha: string, pattern: string, opts?: GrepOptions): Promise<GrepHit[]>;
+}
 export interface IndexerDeps { db: Database; store: ObjectStore; cipher: EnvelopeCipher; router: ModelRouter; source: RepoSource }
 export interface IndexResult { indexId: string; status: "ready"; files: number; parsed: number; reused: number; embedded: number; symbols: number; chunks: number }
 
@@ -56,6 +64,22 @@ export function gitRepoSource(dir: string): RepoSource {
         const m = /^\d+ blob ([0-9a-f]+)\s+(\d+|-)\t(.*)$/s.exec(l);
         return m ? [{ blobSha: m[1]!, size: Number(m[2]), path: m[3]! }] : [];
       });
+    },
+    async grep(commitSha, pattern, opts = {}) {
+      if (!SHA.test(commitSha)) throw new Error("invalid commit sha");
+      // -e keeps the pattern from being read as an option; exit 1 (no match) is not an error.
+      const args = ["-C", dir, "grep", "-n", "-I", "-E", "--full-name", ...(opts.ignoreCase ? ["-i"] : []), "-e", pattern, commitSha, ...(opts.globs?.length ? ["--", ...opts.globs.filter((g) => /^[\w*./-]+$/.test(g))] : [])];
+      const out = await exec("git", args, { maxBuffer: 64 << 20 }).catch((e: { code?: number; stdout?: string }) => {
+        if (e.code === 1) return { stdout: "" };
+        throw e;
+      });
+      const hits: GrepHit[] = [];
+      for (const l of out.stdout.split("\n")) {
+        const m = /^[0-9a-f]+:([^:]+):(\d+):(.*)$/.exec(l);
+        if (m) hits.push({ path: m[1]!, line: Number(m[2]), text: m[3]!.slice(0, 400) });
+        if (hits.length >= (opts.maxHits ?? 2000)) break;
+      }
+      return hits;
     },
     async readBlob(blobSha) {
       if (!SHA.test(blobSha)) throw new Error("invalid blob sha");

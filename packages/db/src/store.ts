@@ -83,6 +83,12 @@ export async function addFeedback(sql: Sql, tenantId: string, findingId: string,
   return Feedback.parse({ id, findingId, verdict: fb.verdict, ...(fb.reason ? { reason: fb.reason } : {}), ...(fb.actor ? { actor: fb.actor } : {}), createdAt: iso(row.created_at) });
 }
 
+/** Feedback on findings of one repository (input for learned suppression rules). */
+export async function repositoryFeedback(sql: Sql, repositoryId: string): Promise<{ category: string; severity: string; path: string; verdict: FeedbackVerdict }[]> {
+  return (await sql.query<{ category: string; severity: string; path: string; verdict: FeedbackVerdict }>(
+    `SELECT f.category, f.severity, f.path, fb.verdict FROM feedback fb JOIN findings f ON f.id = fb.finding_id JOIN reviews r ON r.id = f.review_id WHERE r.repository_id = $1`, [repositoryId])).rows;
+}
+
 export async function suppressedFingerprints(sql: Sql, repositoryId: string): Promise<Set<string>> {
   return new Set((await sql.query<{ fingerprint: string }>("SELECT fingerprint FROM suppressions WHERE repository_id = $1", [repositoryId])).rows.map((r) => r.fingerprint));
 }

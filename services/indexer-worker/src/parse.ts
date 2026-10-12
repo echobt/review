@@ -10,15 +10,21 @@ export interface TsNode {
 interface TsParser { setLanguage(l: unknown): void; parse(src: string): { rootNode: TsNode; delete(): void } | null; delete(): void }
 interface TreeSitter { Parser: { new (): TsParser; init(): Promise<void> }; Language: { load(path: string): Promise<unknown> } }
 
-export type Lang = "typescript" | "tsx" | "javascript" | "python" | "go" | "java" | "rust";
+export type Lang = "typescript" | "tsx" | "javascript" | "python" | "go" | "java" | "rust" | "ruby";
 export type EntityKind = "function" | "method" | "class" | "interface" | "type";
-export interface Entity { name: string; kind: EntityKind; fqName: string; startLine: number; endLine: number; startIndex: number; endIndex: number; parent?: string }
+export interface Entity {
+  name: string; kind: EntityKind; fqName: string; startLine: number; endLine: number; startIndex: number; endIndex: number; parent?: string;
+  /** Declared base classes / interfaces (classes only), last name segment, generics stripped. */
+  bases?: string[];
+  /** Abstract member (abstractmethod / abstract keyword / raise NotImplementedError body) or abstract class. */
+  abstract?: boolean;
+}
 export interface Edge { kind: "call" | "import" | "var"; dstName: string; line: number; src?: string /* fqName of enclosing entity */ }
 export interface ParsedFile { language: Lang; entities: Entity[]; edges: Edge[]; imports: string[] }
 
 const EXT: Record<string, Lang> = {
   ts: "typescript", mts: "typescript", cts: "typescript", tsx: "tsx", js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript",
-  py: "python", go: "go", java: "java", rs: "rust",
+  py: "python", go: "go", java: "java", rs: "rust", rb: "ruby",
 };
 export const detectLanguage = (path: string): Lang | undefined => EXT[path.slice(path.lastIndexOf(".") + 1).toLowerCase()];
 
@@ -37,7 +43,7 @@ async function parserFor(lang: Lang): Promise<TsParser> {
 
 const JS_DECL: Record<string, EntityKind> = {
   function_declaration: "function", generator_function_declaration: "function", class_declaration: "class", abstract_class_declaration: "class",
-  method_definition: "method", interface_declaration: "interface", type_alias_declaration: "type", enum_declaration: "type",
+  method_definition: "method", abstract_method_signature: "method", interface_declaration: "interface", type_alias_declaration: "type", enum_declaration: "type",
 };
 /** Per-language node types. ponytail: hand-written maps instead of .scm tag queries; switch to upstream tags.scm when more languages land. */
 const SPEC: Record<Lang, { decl: Record<string, EntityKind>; call: string[]; imports: string[]; ident: string[] }> = {
@@ -50,6 +56,7 @@ const SPEC: Record<Lang, { decl: Record<string, EntityKind>; call: string[]; imp
     decl: { class_declaration: "class", interface_declaration: "interface", enum_declaration: "class", record_declaration: "class", method_declaration: "method", constructor_declaration: "method" },
     call: ["method_invocation", "object_creation_expression"], imports: ["import_declaration"], ident: ["identifier"],
   },
+  ruby: { decl: { class: "class", module: "class", method: "method", singleton_method: "method" }, call: ["call"], imports: [], ident: ["identifier"] },
   rust: {
     decl: { function_item: "function", struct_item: "class", enum_item: "class", trait_item: "interface", type_item: "type", impl_item: "class" },
     call: ["call_expression", "macro_invocation"], imports: ["use_declaration"], ident: ["identifier"],
@@ -65,6 +72,38 @@ function entityName(n: TsNode, lang: Lang): string | undefined {
   return n.childForFieldName("name")?.text;
 }
 
+const stripGenerics = (s: string) => s.replace(/[[<][\s\S]*$/, "").trim();
+/** Base class names of a class node (python superclasses, TS/Java extends+implements, ruby superclass). */
+function basesOf(n: TsNode, lang: Lang): string[] {
+  const out: string[] = [];
+  const add = (t: string | undefined) => { const s = t && lastSeg(stripGenerics(t)); if (s && /^[A-Za-z_]\w*$/.test(s) && s !== "object") out.push(s); };
+  if (lang === "python") {
+    for (const a of kids(n.childForFieldName("superclasses") ?? ({ namedChildren: [] } as unknown as TsNode))) if (a.type !== "keyword_argument") add(a.text);
+  } else if (lang === "ruby") add(n.childForFieldName("superclass")?.text.replace(/^<\s*/, ""));
+  else if (lang === "java") {
+    add(n.childForFieldName("superclass")?.text.replace(/^extends\s+/, ""));
+    for (const t of (n.childForFieldName("interfaces")?.text.replace(/^implements\s+/, "") ?? "").split(",")) add(t);
+  } else if (lang === "typescript" || lang === "tsx" || lang === "javascript") {
+    const h = kids(n).find((c) => c.type === "class_heritage");
+    for (const cl of h ? kids(h) : []) for (const t of cl.text.replace(/^(extends|implements)\s+/, "").split(",")) add(t);
+  }
+  return out;
+}
+
+/** Abstract markers: python @abstractmethod / NotImplementedError body, TS/Java abstract modifier. */
+function isAbstract(n: TsNode, lang: Lang): boolean {
+  if (lang === "python") {
+    const deco = n.parent?.type === "decorated_definition" ? n.parent.text.slice(0, n.startIndex - n.parent.startIndex) : "";
+    if (/@(abc\.)?abstract(method|property)/.test(deco)) return true;
+    const body = n.childForFieldName("body");
+    const stmts = body ? kids(body).filter((s) => s.type !== "expression_statement" || !/^("""|'''|"|')/.test(s.text)) : [];
+    return stmts.length === 1 && /^raise\s+NotImplementedError/.test(stmts[0]!.text);
+  }
+  if (n.type === "abstract_method_signature" || n.type === "abstract_class_declaration") return true;
+  if (lang === "java") return /\babstract\b/.test(kids(n).find((c) => c.type === "modifiers")?.text ?? "");
+  return false;
+}
+
 function refineKind(n: TsNode, kind: EntityKind, inClass: boolean, lang: Lang): EntityKind {
   if (lang === "go" && n.type === "type_spec") {
     const t = n.childForFieldName("type")?.type;
@@ -74,6 +113,7 @@ function refineKind(n: TsNode, kind: EntityKind, inClass: boolean, lang: Lang): 
 }
 
 function calleeName(n: TsNode): string | undefined {
+  if (n.type === "call" && n.childForFieldName("method")) return n.childForFieldName("method")!.text;
   const f = n.childForFieldName("function") ?? n.childForFieldName("constructor") ?? n.childForFieldName("macro")
     ?? (n.type === "object_creation_expression" ? n.childForFieldName("type") : null);
   if (n.type === "method_invocation") return n.childForFieldName("name")?.text;
@@ -164,6 +204,8 @@ export async function parseSource(path: string, source: string, lang: Lang | und
         if (!(lang === "rust" && n.type === "impl_item")) {
           const fqLocal = parentName && k === "method" ? `${parentName}.${name}` : name;
           ent = { name, kind: k, fqName: `${path}#${fqLocal}`, startLine: line(n), endLine: n.endPosition.row + 1, startIndex: n.startIndex, endIndex: n.endIndex, ...(parentName && k === "method" ? { parent: parentName } : {}) };
+          if (k === "class" || k === "interface") { const b = basesOf(n, lang); if (b.length) ent.bases = b; }
+          if (isAbstract(n, lang)) ent.abstract = true;
           if (n.type === "variable_declarator" && n.parent) { // span the whole declaration statement
             const decl = n.parent.parent?.type === "export_statement" ? n.parent.parent : n.parent;
             Object.assign(ent, { startLine: line(decl), endLine: decl.endPosition.row + 1, startIndex: decl.startIndex, endIndex: decl.endIndex });
