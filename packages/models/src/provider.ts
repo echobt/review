@@ -9,7 +9,7 @@ export interface ChatRequest {
   model: string;
   messages: ChatMessage[];
   tools?: ToolSpec[];
-  /** Force a specific tool call (structured output). */
+  /** Force a specific tool call (structured output); "required" / "auto" pass through. */
   toolChoice?: string;
   /** Ask for a JSON object response (when tools are not used). */
   jsonMode?: boolean;
@@ -95,7 +95,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     const body = ChatResponse.parse(await this.#post("/chat/completions", {
       model: req.model, messages: req.messages, max_tokens: req.maxTokens ?? 1024, temperature: req.temperature ?? 0,
       ...(req.tools?.length ? { tools: req.tools.map((t) => ({ type: "function", function: t })) } : {}),
-      ...(req.toolChoice ? { tool_choice: { type: "function", function: { name: req.toolChoice } } } : {}),
+      ...(req.toolChoice ? { tool_choice: req.toolChoice === "required" || req.toolChoice === "auto" ? req.toolChoice : { type: "function", function: { name: req.toolChoice } } } : {}),
       ...(req.jsonMode ? { response_format: { type: "json_object" } } : {}),
     }, req.signal));
     const m = body.choices[0]!.message;

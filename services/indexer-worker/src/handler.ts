@@ -1,7 +1,7 @@
 import type { Message } from "@review/core";
 import { EnvelopeCipher, LocalKms, VaultTransitKms } from "@review/crypto";
 import { pgDatabase, type Database } from "@review/db";
-import { defaultPolicy, MemoryBudgetLedger, ModelRouter, providersFromEnv } from "@review/models";
+import { MemoryBudgetLedger, policyFromEnv, ModelRouter, providersFromEnv } from "@review/models";
 import { loadConfig, memoryObjectStore, readSecret, s3ObjectStore, type ServiceConfig } from "@review/service-common";
 import { gitRepoSource, indexRepository, type IndexerDeps, type IndexResult } from "./indexer.ts";
 
@@ -21,7 +21,7 @@ export function createIndexerDeps(cfg: ServiceConfig, env: NodeJS.ProcessEnv = p
   const kms = vaultToken && env.VAULT_ADDR ? new VaultTransitKms({ addr: env.VAULT_ADDR, token: vaultToken }) : new LocalKms(Buffer.from(masterKey!, "base64"));
   const db: Database = pgDatabase(cfg.DATABASE_URL);
   // ponytail: in-process budget ledger; switch to the usage_ledger-backed one when @review/models ships it.
-  const router = new ModelRouter(defaultPolicy, { providers: providersFromEnv(env), budget: new MemoryBudgetLedger({ prUsd: 5, tenantMonthlyUsd: 500 }) });
+  const router = new ModelRouter(policyFromEnv(env), { providers: providersFromEnv(env), budget: new MemoryBudgetLedger({ prUsd: 5, tenantMonthlyUsd: 500 }) });
   return {
     db, router, cipher: new EnvelopeCipher(kms),
     store: cfg.S3_ENDPOINT || env.AWS_REGION ? s3ObjectStore({ ...(cfg.S3_ENDPOINT ? { endpoint: cfg.S3_ENDPOINT } : {}), bucket: cfg.S3_BUCKET, region: cfg.S3_REGION }) : memoryObjectStore(),

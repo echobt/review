@@ -1,4 +1,4 @@
-import { MemoryBudgetLedger, ModelRouter, defaultPolicy, providersFromEnv } from "@review/models";
+import { MemoryBudgetLedger, ModelRouter, policyFromEnv, providersFromEnv } from "@review/models";
 import { pgDatabase } from "@review/db";
 import { createProducer } from "@review/queue";
 import { memoryObjectStore, readSecret, runWorker, s3ObjectStore } from "@review/service-common";
@@ -11,7 +11,7 @@ await runWorker("review-orchestrator", "review.requested", ({ cfg, transport }) 
   const db = memory ? undefined : pgDatabase(cfg.DATABASE_URL);
   const store = memory ? memoryObjectStore() : s3ObjectStore({ bucket: cfg.S3_BUCKET, region: cfg.S3_REGION, ...(cfg.S3_ENDPOINT ? { endpoint: cfg.S3_ENDPOINT } : {}) });
   // ponytail: per-worker in-memory budget ledger; replace with a usage_ledger-backed ledger for cross-process caps.
-  const router = new ModelRouter(defaultPolicy, { providers: providersFromEnv(), budget: new MemoryBudgetLedger((_t) => ({ prUsd: 0.5, tenantMonthlyUsd: 500 })) });
+  const router = new ModelRouter(policyFromEnv(), { providers: providersFromEnv(), budget: new MemoryBudgetLedger((_t) => ({ prUsd: 0.5, tenantMonthlyUsd: 500 })) });
   // ponytail: static installation token from env; replace with GitHub App JWT -> installation token exchange.
   const token = readSecret("GITHUB_TOKEN");
   const github = token ? new OctokitlessGitHubClient(async () => token) : undefined;
