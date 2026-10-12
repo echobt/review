@@ -40,6 +40,8 @@ export const Finding = z.object({
   confidence: z.number().min(0).max(1),
   source: z.enum(["llm", "sast", "hybrid"]),
   cwe: z.array(z.string().regex(/^CWE-\d+$/)).default([]),
+  /** Execution evidence (E0-E3): the command that failed, its exit code and a stderr excerpt. */
+  evidence: z.object({ command: z.string().max(2000), exitCode: z.number().int(), stderrExcerpt: z.string().max(4000) }).optional(),
 });
 export type Finding = z.infer<typeof Finding>;
 
