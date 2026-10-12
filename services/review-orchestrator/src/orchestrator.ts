@@ -1,9 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { Finding, TenantConfig, type AgentKind, type PullRequestRef, type Usage } from "@review/core";
 import type { FindingDraft } from "@review/schemas";
-import { getTenantConfig, insertFindings, suppressedFingerprints, updateReview, withTenant, type Database } from "@review/db";
+import { getTenantConfig, insertFindings, repositoryFeedback, suppressedFingerprints, updateReview, withTenant, type Database } from "@review/db";
+import type { ModelRouter } from "@review/models";
 import type { Producer } from "@review/queue";
-import { filterFiles, parseDiff, planReview } from "./plan.ts";
+import { execLanguage, validateExecution, type ExecutionPort } from "@review/sandbox-runner";
+import { filterFiles, isCode, parseDiff, planReview, type DiffFile } from "./plan.ts";
+import { addedLines, buildContextPack, type ContextPack, type IndexerPort } from "./pack.ts";
+import { runPipeline } from "./review.ts";
+import { applyLearnedRules, learnSuppressionRules, type FeedbackEvent } from "./learning.ts";
 import { mergeFindings } from "./merge.ts";
 import { buildCheckRun, buildReviewPayload, type GitHubClient } from "./github.ts";
 
@@ -22,10 +27,24 @@ export interface OrchestratorDeps {
   github?: GitHubClient;
   /** Used when no db is configured (memory mode). */
   config?: TenantConfig;
+  /**
+   * Multi-agent engine (GREPTILE-GAP §3-5): with an indexer and a router, the review builds a context pack at the PR head and runs
+   * planner -> hunters -> verifier instead of the single-pass agents. `execution` adds E0-E3 checks; absent = static only.
+   */
+  indexer?: IndexerPort;
+  router?: ModelRouter;
+  /** Execution port bound to a checkout of repo@headSha (E0-E3). */
+  execution?: (repositoryId: string, headSha: string) => Promise<ExecutionPort>;
+  log?: (e: Record<string, unknown>) => void;
 }
 
-export interface ReviewInput { tenantId: string; reviewId: string; repositoryId: string; diff: string; pullRequest?: PullRequestRef }
-export interface ReviewOutcome { findings: Finding[]; summary: string; usage: Usage; partial: boolean }
+export interface ReviewInput { tenantId: string; reviewId: string; repositoryId: string; diff: string; pullRequest?: PullRequestRef; headSha?: string }
+export interface ReviewOutcome {
+  findings: Finding[]; summary: string; usage: Usage; partial: boolean;
+  engine: "single-pass" | "multi-agent";
+  /** Present for the multi-agent engine. */
+  stats?: { hypotheses: number; candidates: number; verified: number; executionFindings: number; learnedSuppressed: number; pack: ContextPack["stats"]; tasks: number; failures: number };
+}
 
 const addUsage = (a: Usage, b: Usage): Usage => ({ inputTokens: a.inputTokens + b.inputTokens, outputTokens: a.outputTokens + b.outputTokens,
   costUsd: a.costUsd + b.costUsd, latencyMs: Math.max(a.latencyMs, b.latencyMs) });
@@ -43,18 +62,37 @@ export async function runReview(deps: OrchestratorDeps, input: ReviewInput): Pro
   await tx((sql) => updateReview(sql, reviewId, { status: "reviewing" }));
   try {
     const files = filterFiles(parseDiff(input.diff), config.pathFilters);
-    const units = planReview(files, config);
-    const results = await Promise.all(units.map((u) => deps.executor({ tenantId, reviewId, kind: u.kind, config, context: { files: u.files, rules: u.rules } })));
-    // Every review agent failing (e.g. no provider configured, outage) must not read as "No issues found".
-    if (results.length && results.every((r) => r.status === "failed")) throw new Error(`all ${results.length} review agents failed`);
+    const headSha = input.headSha ?? input.pullRequest?.headSha;
     let usage: Usage = { inputTokens: 0, outputTokens: 0, costUsd: 0, latencyMs: 0 };
-    for (const r of results) usage = addUsage(usage, r.usage);
-    const candidates = results.flatMap((r) => r.drafts.map((d) => Finding.parse({ ...d, id: randomUUID(), reviewId, source: "llm" })));
+    let candidates: Finding[];
+    let partialNote: string | undefined;
+    let stats: ReviewOutcome["stats"];
+    const engine: ReviewOutcome["engine"] = deps.indexer && deps.router && headSha ? "multi-agent" : "single-pass";
+    if (engine === "multi-agent") {
+      const r = await multiAgent(deps, input, files, config, headSha!);
+      usage = r.usage; candidates = r.findings; stats = r.stats; partialNote = r.partialNote;
+    } else {
+      const units = planReview(files, config);
+      const results = await Promise.all(units.map((u) => deps.executor({ tenantId, reviewId, kind: u.kind, config, context: { files: u.files, rules: u.rules } })));
+      // Every review agent failing (e.g. no provider configured, outage) must not read as "No issues found".
+      if (results.length && results.every((r) => r.status === "failed")) throw new Error(`all ${results.length} review agents failed`);
+      for (const r of results) usage = addUsage(usage, r.usage);
+      candidates = results.flatMap((r) => r.drafts.map((d) => Finding.parse({ ...d, id: randomUUID(), reviewId, source: "llm" })));
+      const bad = results.filter((r) => r.status !== "completed").length;
+      if (bad) partialNote = `Partial review: ${bad} of ${results.length} agents did not complete (budget or provider failure).`;
+    }
     const suppressed = (await tx((sql) => suppressedFingerprints(sql, input.repositoryId))) ?? new Set<string>();
+    // Learned suppression (GAP §7.2): clusters of dismissed feedback; guardrail keeps high/critical and security.
+    if (config.learning) {
+      const events = (await tx((sql) => repositoryFeedback(sql, input.repositoryId))) ?? [];
+      const learned = applyLearnedRules(candidates, learnSuppressionRules(events as FeedbackEvent[]));
+      if (stats) stats.learnedSuppressed = learned.suppressed.length;
+      candidates = learned.kept;
+    }
     const kept = mergeFindings(candidates, { config, suppressed });
     const findings = kept.map((k) => k.finding);
 
-    const partial = results.some((r) => r.status !== "completed");
+    const partial = partialNote !== undefined;
     let summary = fallbackSummary(findings, files.length);
     if (findings.length || files.length) {
       const notes = findings.map((f) => `- [${f.severity}] ${f.location.path}:${f.location.startLine} ${f.title}`).join("\n");
@@ -62,7 +100,7 @@ export async function runReview(deps: OrchestratorDeps, input: ReviewInput): Pro
       usage = addUsage(usage, s.usage);
       if (s.status === "completed" && s.summary) summary = s.summary;
     }
-    if (partial) summary += `\n\nPartial review: ${results.filter((r) => r.status !== "completed").length} of ${results.length} agents did not complete (budget or provider failure).`;
+    if (partialNote) summary += `\n\n${partialNote}`;
 
     const pr = input.pullRequest;
     const posted = Boolean(pr && deps.github);
@@ -76,9 +114,49 @@ export async function runReview(deps: OrchestratorDeps, input: ReviewInput): Pro
     });
     for (const finding of findings) await deps.producer.send("finding.created", tenantId, { finding }, { jobId: `finding-${finding.id}` });
     await deps.producer.send("review.completed", tenantId, { reviewId, findingCount: findings.length, usage }, { jobId: `review-completed-${reviewId}` });
-    return { findings, summary, usage, partial };
+    return { findings, summary, usage, partial, engine, ...(stats ? { stats } : {}) };
   } catch (e) {
     await tx((sql) => updateReview(sql, reviewId, { status: "failed" }));
     throw e;
   }
+}
+
+/** Python/Java/... class names declared on added lines (E1 instantiation targets). */
+function changedClasses(files: DiffFile[]): { path: string; name: string }[] {
+  return files.flatMap((f) => addedLines(f).flatMap(({ text }) => { const m = /^\s*class\s+([A-Za-z_]\w*)/.exec(text); return m ? [{ path: f.path, name: m[1]! }] : []; }));
+}
+
+/** ensureIndexed -> context pack -> planner/hunters/verifier -> execution checks. Returns platform findings (not yet merged). */
+async function multiAgent(deps: OrchestratorDeps, input: ReviewInput, files: DiffFile[], config: TenantConfig, headSha: string) {
+  const index = await deps.indexer!.ensureIndexed(input.repositoryId, headSha);
+  const code = files.filter((f) => isCode(f.path));
+  const pack = await buildContextPack(index, code);
+  deps.log?.({ event: "pack", ...pack.stats, files: pack.files.length, definitions: pack.definitions.length, classes: pack.classes.length, imports: pack.imports.length });
+  const scope = { tenantId: input.tenantId, reviewId: input.reviewId };
+  const result = await runPipeline({ router: deps.router!, index, scope, ...(deps.log ? { log: deps.log } : {}) }, code, pack, config);
+  if (result.tasks > 0 && result.failures >= result.tasks) throw new Error(`all ${result.tasks} review agents failed`);
+  const findings: Finding[] = result.kept.map(({ evidence_text: _e, test: _t, ...d }) => Finding.parse({ ...d, id: randomUUID(), reviewId: input.reviewId, source: "llm" }));
+  let executionFindings = 0;
+  if (deps.execution) {
+    const added = new Map(code.map((f) => [f.path, addedLines(f).map((l) => l.line)]));
+    const tests = pack.callers.flatMap((c) => c.tests.map((t) => t.path));
+    // E3: tests the hunters wrote for kept findings; a test failing on head confirms its finding.
+    const hypothesisTests = result.kept.flatMap((k) => { const language = k.test && execLanguage(k.test.path); return k.test && language ? [{ ...k.test, language, target: k.location, title: k.title }] : []; });
+    const port = await deps.execution(input.repositoryId, headSha);
+    const rep = await validateExecution(port, { added, changedPaths: code.map((f) => f.path), classes: changedClasses(code), testPaths: tests, hypothesisTests });
+    deps.log?.({ event: "execution", runs: rep.runs });
+    for (const ef of rep.findings) {
+      // An execution failure confirms the overlapping LLM finding (hybrid) or stands alone; it is always diff-anchored by toFindings.
+      const twin = findings.find((f) => f.location.path === ef.location.path && Math.abs(f.location.startLine - ef.location.startLine) <= 3);
+      if (twin) { twin.source = "hybrid"; twin.confidence = Math.max(twin.confidence, ef.confidence); twin.evidence = ef.evidence; continue; }
+      const { level: _l, ...rest } = ef;
+      findings.push(Finding.parse({ ...rest, id: randomUUID(), reviewId: input.reviewId, source: "hybrid" }));
+      executionFindings++;
+    }
+  }
+  return {
+    findings, usage: result.usage,
+    partialNote: result.failures ? `Partial review: ${result.failures} of ${result.tasks} agent calls failed${result.budgetExhausted ? " (budget exhausted)" : ""}.` : undefined,
+    stats: { hypotheses: result.hypotheses.length, candidates: result.candidates.length, verified: result.kept.length, executionFindings, learnedSuppressed: 0, pack: pack.stats, tasks: result.tasks, failures: result.failures },
+  };
 }
