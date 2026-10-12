@@ -5,7 +5,7 @@
 //     [--engine multi-agent|single-pass] [--depth fast|standard|deep] [--pr-usd 5] [--concurrency 3]
 // Leakage rule (GREPTILE-GAP §1.2): the engine sees only repo@headSha and diff(base..head); never labels, PR comments or the fix.
 import { execFile } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { promisify } from "node:util";
 import { TenantConfig } from "@review/core";
 import { MemoryBudgetLedger, ModelRouter, policyFromEnv, providersFromEnv } from "@review/models";
@@ -55,7 +55,7 @@ async function one(c: DCase) {
   try {
     const out = await runReview({
       executor: (req) => runAgent({ router }, req), producer: createProducer(memoryTransport()), config,
-      ...(engine === "multi-agent" ? { indexer, router } : {}), log: (e) => events.push({ t: Date.now() - t0, ...e }),
+      ...(engine === "multi-agent" ? { indexer, router } : {}), log: (e) => { const ev = { t: Date.now() - t0, ...e }; events.push(ev); appendFileSync(`${outDir}/${c.id}.events.jsonl`, JSON.stringify(ev) + "\n"); },
     }, { tenantId: "bench", reviewId: c.id, repositoryId: repoId, diff, headSha: c.headSha });
     const rec = { caseId: c.id, ok: true, engine: out.engine, latencyMs: Date.now() - t0, usage: out.usage, partial: out.partial, stats: out.stats, summary: out.summary,
       findings: out.findings.map((f) => ({ title: f.title, body: f.body, category: f.category, severity: f.severity, confidence: f.confidence, location: f.location, source: f.source })), events };
