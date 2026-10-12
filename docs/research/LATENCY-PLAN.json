@@ -1,0 +1,466 @@
+{
+  "version": "1.0.0",
+  "date": "2026-10-12",
+  "doc": "docs/research/LATENCY-PLAN.md",
+  "labels": {
+    "FACT": "published by cited source or read from code (path given)",
+    "MEASURED": "own benchmark totals only; no per-phase data yet",
+    "PROPOSAL": "design or estimate, unproven"
+  },
+  "baseline": {
+    "label": "MEASURED",
+    "branch": "boat/1da9053f5295",
+    "cases": "sentry 10",
+    "medianMin": 23,
+    "maxMin": 62,
+    "oom": {
+      "case": "sentry-01",
+      "atMin": 78,
+      "kind": "V8 heap"
+    },
+    "medianCostUsd": 2.48,
+    "caught": 4,
+    "of": 10
+  },
+  "reference": {
+    "label": "FACT",
+    "greptile": {
+      "avgReviewMin": 3,
+      "source": "S220",
+      "v5MedianBefore": "5:04",
+      "v5MedianAfter": "2:25",
+      "v5Sources": [
+        "S204",
+        "S205"
+      ],
+      "indexing": {
+        "small": "3-5 min",
+        "large": "over an hour",
+        "once": true,
+        "autoUpdateOnPush": true,
+        "source": "S221"
+      }
+    },
+    "copilot": {
+      "typical": "usually < 30 s",
+      "source": "S222",
+      "context": "GitHub Actions on demand",
+      "contextSource": "S223"
+    }
+  },
+  "criticalPath": {
+    "label": "PROPOSAL",
+    "depth": "standard",
+    "hypotheses": 20,
+    "freeHuntGroups": 2,
+    "width": 6,
+    "hunterWaves": 4,
+    "callsPerHunter": 5,
+    "verifierCandidatesMax": 30,
+    "verifierWaves": 5,
+    "callsPerVerifier": 4,
+    "sequentialLlmCallsWorstCase": 42,
+    "impliedSecondsPerCall": 33,
+    "codeConstants": {
+      "HYPOTHESIS_CAP": {
+        "fast": 8,
+        "standard": 20,
+        "deep": 40
+      },
+      "poolWidth": 6,
+      "maxToolRoundsHunter": 4,
+      "maxToolRoundsVerifier": 3,
+      "maxTokens": 4000,
+      "hunterPackTokens": 40000,
+      "verifierPackTokens": 20000,
+      "providerTimeoutMs": 120000,
+      "retryAttempts": 2
+    }
+  },
+  "hypotheses": [
+    {
+      "id": "H1",
+      "what": "serialized LLM depth (waves + barrier)",
+      "code": [
+        "services/review-orchestrator/src/review.ts#runPipeline"
+      ],
+      "measure": "span pipeline.{plan,hunt,verify} + hunt.task rounds",
+      "share": "largest"
+    },
+    {
+      "id": "H2",
+      "what": "large prompts / long outputs per call",
+      "code": [
+        "services/review-orchestrator/src/review.ts#hunt",
+        "services/review-orchestrator/src/pack.ts#renderPack"
+      ],
+      "measure": "llm.call span tokens + latency",
+      "share": "large"
+    },
+    {
+      "id": "H3",
+      "what": "no prompt caching (per-call nonce in system prompt; string content, no cache_control)",
+      "code": [
+        "services/review-orchestrator/src/review.ts#fenced",
+        "packages/models/src/provider.ts#ChatMessage"
+      ],
+      "measure": "usage.prompt_tokens_details cached tokens",
+      "share": "multiplier on H2"
+    },
+    {
+      "id": "H4",
+      "what": "sequential tool calls, each full-repo git grep",
+      "code": [
+        "services/review-orchestrator/src/review.ts#agentLoop",
+        "services/indexer-worker/src/indexer.ts#gitRepoSource"
+      ],
+      "measure": "tool.<name> span",
+      "share": "medium"
+    },
+    {
+      "id": "H5",
+      "what": "retries/downgrade (120 s timeout x 2 attempts per target)",
+      "code": [
+        "packages/models/src/router.ts",
+        "packages/models/src/provider.ts"
+      ],
+      "measure": "Attempt[] in events",
+      "share": "tail"
+    },
+    {
+      "id": "H6",
+      "what": "sequential cold sandbox per E0-E3 command, after LLM",
+      "code": [
+        "services/sandbox-runner/src/execution.ts#validateExecution",
+        "services/sandbox-runner/src/sandbox.ts"
+      ],
+      "measure": "exec.<level> span",
+      "share": "tail, when enabled"
+    },
+    {
+      "id": "H7",
+      "what": "index lookup / fetch / pack build",
+      "code": [
+        "services/review-orchestrator/src/pack.ts#gitMirrorIndexer",
+        "services/review-orchestrator/src/pack.ts#buildContextPack"
+      ],
+      "measure": "pack.buildMs (exists), index.ensure span",
+      "share": "small on bench"
+    },
+    {
+      "id": "H8",
+      "what": "OOM from unbounded file/parse caches + per-repo@sha index cache + 200k-token render per verify + 2 concurrent cases",
+      "code": [
+        "services/indexer-worker/src/local-index.ts",
+        "services/review-orchestrator/src/pack.ts#gitMirrorIndexer",
+        "services/review-orchestrator/src/review.ts#verify",
+        "scripts/bench/run.ts"
+      ],
+      "measure": "heap samples every 10 s",
+      "share": "crash, not median"
+    },
+    {
+      "id": "H9",
+      "what": "clone per run (not the case: mirrors reused, depth=1 fetch when missing)",
+      "code": [
+        "services/review-orchestrator/src/pack.ts#gitMirrorIndexer"
+      ],
+      "measure": "index.ensure fetched flag",
+      "share": "small"
+    }
+  ],
+  "designs": {
+    "persistentIndex": {
+      "label": "PROPOSAL",
+      "section": "§2",
+      "facts": "content-addressed by (tenant_id, blob_sha)",
+      "manifest": "index_files per commit + new branch_heads table (RLS)",
+      "update": "push webhook -> incremental, new blobs only, batched inserts",
+      "coldStart": "background; LocalCodeIndex fallback",
+      "lookup": "PgCodeIndex = base manifest + PR overlay parse",
+      "isolation": "withTenant + FORCE RLS (S231); pgvector iterative scan/partial index (S232)",
+      "gc": "drop old manifests and unreferenced blob facts"
+    },
+    "parallelism": {
+      "label": "PROPOSAL",
+      "section": "§3",
+      "toolCalls": "Promise.all",
+      "hunterVerifier": "single streamed pool, no barrier",
+      "widthCapByDepth": {
+        "fast": 8,
+        "standard": 16,
+        "deep": 24
+      },
+      "freeHuntWithPlanner": true,
+      "execAtStart": [
+        "E0",
+        "E1",
+        "semgrep"
+      ],
+      "providerSemaphore": true,
+      "evidence": [
+        "S204",
+        "S227",
+        "S228"
+      ]
+    },
+    "caching": {
+      "label": "PROPOSAL",
+      "section": "§4",
+      "layout": [
+        "tools",
+        "system(role + per-review nonce + versions + rules)",
+        "user[0] shared pack+diff",
+        "user[1] per-task"
+      ],
+      "breakpoints": 3,
+      "ttl": "5m default",
+      "sticky": "session_id=reviewId",
+      "evidence": [
+        "S224",
+        "S225",
+        "S226"
+      ],
+      "savings": [
+        {
+          "case": "one hunter loop",
+          "P": 40000,
+          "N": 4,
+          "relInputCost": 0.39
+        },
+        {
+          "case": "shared context across hunters",
+          "P": 40000,
+          "N": 88,
+          "relInputCost": 0.11
+        },
+        {
+          "case": "OpenAI worked example",
+          "N": 10,
+          "relInputCost": 0.215,
+          "source": "S226"
+        }
+      ]
+    },
+    "cheapPath": {
+      "label": "PROPOSAL",
+      "section": "§5",
+      "deterministicFirst": [
+        "E0",
+        "E1",
+        "semgrep",
+        "import-missing"
+      ],
+      "escalate": "pre-verified hybrid findings; planner told, hunks not skipped",
+      "verifierSkipForExecConfirmed": true,
+      "autoDepth": {
+        "fast": "<=200 added lines and <=5 files",
+        "standard": "default",
+        "deep": "security paths or >2000 lines",
+        "calibrate": "50-case set"
+      },
+      "evidence": [
+        "S211"
+      ]
+    },
+    "repoAccess": {
+      "label": "PROPOSAL",
+      "section": "§6",
+      "mirror": "bare --filter=blob:none per repo per host (S229)",
+      "worktree": "per review, removed after (S230)",
+      "reads": "from index/object store"
+    }
+  },
+  "budget": {
+    "label": "PROPOSAL",
+    "targetP50S": 150,
+    "phases": [
+      {
+        "phase": "diff+config",
+        "s": 3,
+        "criticalPath": true
+      },
+      {
+        "phase": "mirror fetch/checkout (warm)",
+        "s": 5,
+        "criticalPath": true
+      },
+      {
+        "phase": "index lookup + overlay",
+        "s": 2,
+        "criticalPath": true
+      },
+      {
+        "phase": "context pack",
+        "s": 5,
+        "criticalPath": true
+      },
+      {
+        "phase": "deterministic E0/E1/semgrep",
+        "s": 20,
+        "criticalPath": false
+      },
+      {
+        "phase": "planner",
+        "s": 10,
+        "criticalPath": true
+      },
+      {
+        "phase": "hunters (<=2 waves)",
+        "sMin": 60,
+        "sMax": 90,
+        "criticalPath": true
+      },
+      {
+        "phase": "verifier tail (streamed)",
+        "s": 15,
+        "criticalPath": true
+      },
+      {
+        "phase": "E2/E3 follow-up",
+        "s": null,
+        "criticalPath": false
+      },
+      {
+        "phase": "merge+summary+post",
+        "s": 10,
+        "criticalPath": true
+      }
+    ],
+    "criticalPathTotalS": {
+      "min": 110,
+      "max": 140
+    },
+    "offCriticalPath": [
+      "cold index",
+      "push incremental index",
+      "mirror refresh",
+      "embeddings",
+      "E2/E3 follow-ups",
+      "GC"
+    ]
+  },
+  "slo": {
+    "p50S": 150,
+    "p95S": 300,
+    "clock": "review.requested dequeue -> posted review",
+    "conditions": "warm index+mirror, bench --concurrency 1"
+  },
+  "exitCriteria": [
+    "SLO met on 3 consecutive bench runs",
+    "catch >= 4/10 on Sentry (and >= multi-agent baseline on 50 once run)",
+    "median cost/PR <= 2.48 USD",
+    "no OOM; peak heap under worker limit incl. sentry-01",
+    "PgCodeIndex pack parity with LocalCodeIndex"
+  ],
+  "measurement": {
+    "spans": [
+      "review.run",
+      "index.ensure",
+      "pack.build",
+      "pipeline.plan",
+      "pipeline.hunt.task",
+      "pipeline.verify.task",
+      "tool.<name>",
+      "exec.<level>",
+      "llm.call",
+      "summary",
+      "post"
+    ],
+    "genAiConventions": "S233",
+    "routerHook": "ModelRouter onAttempt -> event llm {role,tier,model,latencyMs,inTok,outTok,cachedTok,ok}",
+    "bench": [
+      "phase_start/phase_end events",
+      "heap samples 10 s",
+      "--concurrency 1 latency mode"
+    ],
+    "report": [
+      "latencyS.p95",
+      "per-phase p50/p95",
+      "LLM calls/PR",
+      "critical-path depth",
+      "cache hit ratio",
+      "peak heap"
+    ]
+  },
+  "steps": [
+    {
+      "id": "L0",
+      "change": "instrumentation + per-phase baseline",
+      "targets": [],
+      "recallRisk": "none"
+    },
+    {
+      "id": "L1",
+      "change": "parallel tools, per-review nonce, cache_control + session_id, parse cached tokens",
+      "targets": [
+        "H3",
+        "H4"
+      ],
+      "recallRisk": "none"
+    },
+    {
+      "id": "L2",
+      "change": "bounded caches, no 200k render in verify",
+      "targets": [
+        "H8"
+      ],
+      "recallRisk": "none"
+    },
+    {
+      "id": "L3",
+      "change": "streamed hunt->verify, width caps, free hunt with planner, E0/E1 at t0",
+      "targets": [
+        "H1",
+        "H6"
+      ],
+      "recallRisk": "low"
+    },
+    {
+      "id": "L4",
+      "change": "auto depth, exec-confirmed skip verifier",
+      "targets": [
+        "H1",
+        "H2"
+      ],
+      "recallRisk": "medium"
+    },
+    {
+      "id": "L5",
+      "change": "PgCodeIndex + content-addressed facts + push indexing + partial mirrors",
+      "targets": [
+        "H4",
+        "H7",
+        "H9"
+      ],
+      "recallRisk": "medium"
+    },
+    {
+      "id": "L6",
+      "change": "round caps 3/2 if no loss",
+      "targets": [
+        "H1"
+      ],
+      "recallRisk": "medium"
+    }
+  ],
+  "sources": [
+    "S204",
+    "S205",
+    "S211",
+    "S220",
+    "S221",
+    "S222",
+    "S223",
+    "S224",
+    "S225",
+    "S226",
+    "S227",
+    "S228",
+    "S229",
+    "S230",
+    "S231",
+    "S232",
+    "S233"
+  ]
+}

@@ -208,3 +208,22 @@ Added for [GREPTILE-GAP.md](./GREPTILE-GAP.md). Raw fetched copies are kept in t
 - [S216] Python docs — queue module — https://docs.python.org/3/library/queue.html — accessed 2026-10-12 — `queue.ShutDown` and `Queue.shutdown(immediate=False)` "Added in version 3.13".
 - [S217] SCIP Code Intelligence Protocol — https://github.com/sourcegraph/scip — accessed 2026-10-12 — indexers: scip-java, scip-typescript, scip-python, scip-ruby, scip-clang, scip-dotnet.
 - [S218] scip-go — https://github.com/scip-code/scip-go — accessed 2026-10-12 — SCIP indexer for Go.
+
+## Latency plan (S220–S233)
+
+Added for [LATENCY-PLAN.md](./LATENCY-PLAN.md). Fetched directly on 2026-10-12 (web search was rate-limited; S221 read via search-result excerpt because the page timed out).
+
+- [S220] Greptile Docs — Overview: What is Greptile? — https://www.greptile.com/docs/introduction — accessed 2026-10-12 — "Posts findings in ~3 minutes as PR comments"; "~3 minutes average review time"; builds a complete graph of the codebase.
+- [S221] Greptile API Docs — Introduction / Quickstart — https://docs.greptile.com/introduction ; https://docs.greptile.com/quickstart — accessed 2026-10-12 — indexing "one-time, takes 5-50 minutes depending on codebase size, auto-updates index on every push"; "3-5 minutes for small repositories, and over an hour for bigger ones, but you only need to do this once".
+- [S222] GitHub Docs — Using GitHub Copilot code review — https://docs.github.com/en/copilot/how-tos/use-copilot-agents/request-a-code-review/use-code-review — accessed 2026-10-12 — "This usually takes less than 30 seconds."
+- [S223] GitHub Docs — About GitHub Copilot code review — https://docs.github.com/en/copilot/concepts/agents/code-review — accessed 2026-10-12 — uses GitHub Actions runners for agentic capabilities incl. "full project context gathering".
+- [S224] Anthropic — Prompt caching — https://platform.claude.com/docs/en/build-with-claude/prompt-caching — accessed 2026-10-12 — prefix order tools→system→messages; 5-min default TTL refreshed on hit, 1-h option; write 1.25x (5 min) / 2x (1 h), read 0.1x base input (some newer models lower); up to 4 breakpoints.
+- [S225] OpenRouter Docs — Prompt caching — https://openrouter.ai/docs/features/prompt-caching — accessed 2026-10-12 — automatic caching for OpenAI/DeepSeek/Gemini, explicit `cache_control` for Anthropic; provider sticky routing by `session_id`/`prompt_cache_key`; cache metrics in `usage.prompt_tokens_details`.
+- [S226] OpenAI — Prompt caching guide — https://platform.openai.com/docs/guides/prompt-caching — accessed 2026-10-12 — GPT-5.6+: min 1,024 tokens; write 1.25x, read 0.1x on most models; "one write and nine full reads cost 2.15× … compared with 10× without caching".
+- [S227] Anthropic Engineering — How we built our multi-agent research system — https://www.anthropic.com/engineering/multi-agent-research-system — accessed 2026-10-12 — 3-5 parallel subagents + 3+ parallel tools "cut research time by up to 90%"; multi-agent ≈15× tokens of chat; token usage explains 80% of variance.
+- [S228] Anthropic — Parallel tool use — https://platform.claude.com/docs/en/agents-and-tools/tool-use/parallel-tool-use — accessed 2026-10-12 — Claude may call multiple tools in one response by default; `disable_parallel_tool_use` in `tool_choice`.
+- [S229] Git — Partial Clone — https://git-scm.com/docs/partial-clone — accessed 2026-10-12 — `--filter` omits objects; missing objects are demand-fetched from a promisor remote.
+- [S230] Git — git-worktree — https://git-scm.com/docs/git-worktree — accessed 2026-10-12 — multiple working trees attached to one repository; per-worktree HEAD.
+- [S231] PostgreSQL — Row Security Policies (5.9) — https://www.postgresql.org/docs/current/ddl-rowsecurity.html — accessed 2026-10-12 — ENABLE ROW LEVEL SECURITY requires a policy for normal access; owners bypass unless FORCE ROW LEVEL SECURITY.
+- [S232] pgvector README — https://github.com/pgvector/pgvector — accessed 2026-10-12 — HNSW vs IVFFlat; filtering applied after index scan; iterative index scans and partial indexes for filtered ANN.
+- [S233] OpenTelemetry — Generative AI semantic conventions (moved) — https://opentelemetry.io/docs/specs/semconv/gen-ai/ → https://github.com/open-telemetry/semantic-conventions-genai — accessed 2026-10-12 — standard span attributes for model calls (model, token usage).
