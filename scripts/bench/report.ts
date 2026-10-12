@@ -2,7 +2,7 @@
 // Usage: node scripts/bench/report.ts --run bench-runs/<name> [--baseline bench-runs/<old>]
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 
-interface J { caseId: string; caught: boolean; ok: boolean; costUsd: number; latencyMs: number; findings: number }
+interface J { caseId: string; caught: boolean; ok: boolean; costUsd: number; latencyMs: number; findings: number; partial?: boolean }
 const arg = (k: string, d?: string) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
 const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s.length ? (s.length % 2 ? s[(s.length - 1) / 2]! : (s[s.length / 2 - 1]! + s[s.length / 2]!) / 2) : 0; };
 
@@ -15,6 +15,8 @@ export function summarize(results: J[], ds: { cases: { id: string; publishedSeve
   };
   return {
     caught: results.filter((r) => r.caught).length, of: results.length, failedRuns: results.filter((r) => !r.ok).length,
+    // Partial runs (some agent calls failed / budget hit) may under-measure catch rate; listed so they are not silently counted as clean.
+    partialCases: results.filter((r) => r.partial).map((r) => ({ id: r.caseId, caught: r.caught })),
     greptileSameCases: results.filter((r) => byId.get(r.caseId)?.published.greptile).length,
     perRepo: group((r) => r.caseId.replace(/-\d+$/, "")), perSeverity: group((r) => byId.get(r.caseId)?.publishedSeverity ?? "?"),
     costUsd: { total: results.reduce((s, r) => s + r.costUsd, 0), medianPerPr: median(results.map((r) => r.costUsd)) },
@@ -28,7 +30,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const run = arg("--run")!;
   const ds = JSON.parse(readFileSync(arg("--dataset", new URL("../../docs/scoring/datasets/greptile-50/dataset.json", import.meta.url).pathname)!, "utf8"));
   const j = JSON.parse(readFileSync(`${run}/judged.json`, "utf8")) as { judge: string; judgeCostUsd: number; results: J[] };
-  const rep = { judge: j.judge, judgeCostUsd: j.judgeCostUsd, ...summarize(j.results, ds) };
+  const results = j.results.map((r) => ({ ...r, partial: r.partial ?? (existsSync(`${run}/${r.caseId}.json`) && !!JSON.parse(readFileSync(`${run}/${r.caseId}.json`, "utf8")).partial) }));
+  const rep = { judge: j.judge, judgeCostUsd: j.judgeCostUsd, ...summarize(results, ds) };
   const base = arg("--baseline");
   const out = base && existsSync(`${base}/report.json`) ? { ...rep, baseline: JSON.parse(readFileSync(`${base}/report.json`, "utf8")).caught } : rep;
   writeFileSync(`${run}/report.json`, JSON.stringify(out, null, 1));
