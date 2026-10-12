@@ -2,7 +2,7 @@
 
 As of 2026-10-12, branch `boat/1da9053f5295` (GREPTILE-GAP capabilities 1-7 added on top of `boat/c086bbfcb55e`). **Implemented** means the code is present and exercised by passing tests, and where noted by a live run against the docker compose stack. **Stub / boundary** means the interface and payloads exist but no production backend is wired or proven. Evidence for every number below is in the job directory's `build.json` and `logs/`.
 
-Checks: `pnpm -r build` (`tsc --noEmit` per package, TypeScript 5.9.3) exits 0. `pnpm -r test` (Vitest) exits 0 with 181 tests across 18 packages (the 26 RLS tests that need `RLS_DATABASE_URL` are skipped without it). That run includes the per-table RLS suite against Postgres 16 (`RLS_DATABASE_URL`). A clean install, build and test takes about 45 s on the build host.
+Checks: `pnpm -r build` (`tsc --noEmit` per package, TypeScript 5.9.3) exits 0. `pnpm -r test` (Vitest) exits 0 with 191 tests across 18 packages (181 before the latency work) (the 26 RLS tests that need `RLS_DATABASE_URL` are skipped without it). That run includes the per-table RLS suite against Postgres 16 (`RLS_DATABASE_URL`). A clean install, build and test takes about 45 s on the build host.
 
 ## Shared packages
 
@@ -41,6 +41,17 @@ All six boot against the compose stack (Postgres 16 + pgvector, Valkey, OTel col
 | 5 | Execution validation E0-E3 | `sandbox-runner/src/execution.ts`; wired via `REVIEW_EXECUTION=1` | `execution.test.ts` (real python E0/E1) | Not run in gVisor here (no `runsc`); no per-repo dependency images, so E0/E1 on Sentry would import-fail and are skipped |
 | 6 | Learned rules | rule files (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `.review/rules.md`) in the pack; `learning.ts` suppression from dismissed feedback with security/high guardrail | `learning.test.ts`, `pack.test.ts` | Reply-derived natural-language rules pending admin approval not built |
 | 7 | Per-language support | `languages.ts` (addenda, SCIP indexer names), ruby grammar, import resolution and manifest versions for 6 languages | `languages.test.ts`, `local-index.test.ts` | SCIP binaries not invoked |
+
+## LATENCY-PLAN (docs/research/LATENCY-PLAN.md)
+
+| # | Item | Where | Tests | Not done / stubbed |
+|---|---|---|---|---|
+| 1 | Standing index: one blob-SHA-keyed cache per repo shared by all commits and PRs; `lookup`/`head`/`update`/`invalidate`/`warm`; Postgres `branch_heads` (RLS, migration 004), `readyIndexForCommit`/`setBranchHead`/`invalidateBranchHead`; push webhook enqueues `index.requested{branch}`; an already-indexed commit is never rebuilt | `indexer-worker/src/standing.ts`, `indexer.ts`, `db/src/store.ts`, `api-gateway/src/app.ts` | `standing.test.ts`, `indexer.test.ts`, `phase2.test.ts`, `rls.test.ts` | Review path serves the in-process standing index; a `PgCodeIndex` (SQL-backed tools) and content-addressed facts (no row copy on push) are not built |
+| 2 | Parallelism: `createLimiter`; free hunts start next to the planner; one tier-capped pool (fast 8 / standard 16 / deep 24) for hunters + verifiers; verify streams per candidate (no barrier); tool calls of a round run concurrently; `finding` events stream partial results | `models/src/limit.ts`, `review-orchestrator/src/review.ts` | `limit.test.ts`, `latency.test.ts` | Check run is not posted `in_progress` incrementally; per-provider semaphore in `ModelRouter` not added |
+| 3 | Prompt caching: one fence per review, shared cache-marked prefix (system + pack + diff) for every hunter/verifier, `cache_control` blocks + `session_id` (OpenRouter default on, gateways opt-in via `GATEWAY_PROMPT_CACHE=1`), cached tokens recorded; verifier grounding pack rendered once per review (was 200k tokens per candidate); embeddings stay cached by content hash in `embedding_cache` | `models/src/provider.ts`, `env.ts`, `review.ts` | `latency.test.ts` (prefix identity, wire format, cached-token parsing) | Savings not measured live: the bench gateway was run without cache_control (opt-in off), so `cachedTok` = 0 |
+| 4 | Cheap path first: E0/E1 start at t=0 in parallel with indexing/LLM; LLM candidates at a location an execution check already failed skip the frontier verifier; pack-level missing imports are escalated as verifier candidates; `reviewDepth: "auto"` | `orchestrator.ts`, `tier.ts` | `latency.test.ts`, `pipeline.test.ts` | Semgrep is not wired into the review path; auto thresholds are uncalibrated |
+| 5 | Repo access: `RepoCache` = one bare partial mirror per repo (`--filter=blob:limit=1m`, never shallow), single-flight incremental fetch per commit (lazy fetch disabled for the presence check), worktree per review removed in `finally` | `review-orchestrator/src/repo-cache.ts`, `main.ts`, `scripts/bench/run.ts` | `latency.test.ts` (real git) | File reads come from the mirror via the in-process index, not object-store blobs |
+| 6 | Instrumentation: `phase_start/phase_end`, `llm` (role, model, latency, tokens, cached), `tool` (ms), `heap` every 10 s; `--warm`; report p50/p95/max, per-phase p50/p95, LLM calls/PR, cache hit ratio, peak heap, SLO (p50 <= 150 s, p95 <= 300 s) verdict | `scripts/bench/run.ts`, `report.ts` | `bench.test.ts` | OTel spans per phase not added (events only) |
 
 ## SDKs
 

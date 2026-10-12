@@ -29,8 +29,13 @@ and optional `MODEL_<TIER>_PRICE="in,out"`. `REVIEW_EXECUTION=1` adds E0-E3 exec
 node scripts/bench/extract.ts                                   # refresh dataset from the public forks (GH_TOKEN)
 node scripts/bench/run.ts --repo sentry --mirrors <dir> --out bench-runs/x   # engine under test; model env as above
 node scripts/bench/judge.ts --run bench-runs/x                  # published "caught" rule; LLM judge on MODEL_LARGE
-node scripts/bench/report.ts --run bench-runs/x
+node scripts/bench/report.ts --run bench-runs/x                 # catch rate + latency p50/p95, per-phase, LLM calls, cache hit ratio, SLO verdict
 ```
+
+Latency (see [LATENCY-PLAN](docs/research/LATENCY-PLAN.md)): measure the SLO (p50 <= 150 s, p95 <= 300 s) with `--concurrency 1 --warm`.
+`--warm` warms the standing index off the clock, as a push would in production. Engine knobs: `reviewDepth: "auto"` picks fast/standard/deep from PR size and risk.
+Prompt caching is on for OpenRouter (`PROMPT_CACHE=0` turns it off) and opt-in for gateways (`GATEWAY_PROMPT_CACHE=1`).
+`REVIEW_REMOTE_TEMPLATE=https://github.com/{repo}.git` lets the orchestrator create partial mirrors on first use.
 
 ## Quick start
 
