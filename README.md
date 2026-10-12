@@ -13,6 +13,23 @@ packages/  core  db  queue  models  telemetry  crypto  schemas      shared libra
            client  sdk  scoring-client                               published SDKs
 services/  api-gateway  indexer-worker  review-orchestrator  agent-runner  sandbox-runner  scoring-service
            common (@review/service-common: config, health server, worker bootstrap, object store)
+scripts/   bench (@review/bench: greptile-50 benchmark harness)
+```
+
+## Review engine
+
+With `REVIEW_MIRROR_ROOT=<dir of git mirrors named by repository id>` the orchestrator runs the multi-agent engine
+(context pack -> planner -> hypothesis hunters with code tools -> grounded verifier; see [GREPTILE-GAP](docs/research/GREPTILE-GAP.md)).
+Tiers come from env: `MODEL_PROVIDER` (e.g. `gateway` with `GATEWAY_BASE_URL` + `GATEWAY_API_KEY[_FILE]`), `MODEL_SMALL`, `MODEL_MEDIUM`, `MODEL_LARGE`
+and optional `MODEL_<TIER>_PRICE="in,out"`. `REVIEW_EXECUTION=1` adds E0-E3 execution checks in the sandbox driver.
+
+## Benchmark (greptile-50)
+
+```sh
+node scripts/bench/extract.ts                                   # refresh dataset from the public forks (GH_TOKEN)
+node scripts/bench/run.ts --repo sentry --mirrors <dir> --out bench-runs/x   # engine under test; model env as above
+node scripts/bench/judge.ts --run bench-runs/x                  # published "caught" rule; LLM judge on MODEL_LARGE
+node scripts/bench/report.ts --run bench-runs/x
 ```
 
 ## Quick start
