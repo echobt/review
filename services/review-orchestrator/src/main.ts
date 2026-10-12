@@ -14,8 +14,8 @@ await runWorker("review-orchestrator", "review.requested", ({ cfg, transport }) 
   const store = memory ? memoryObjectStore() : s3ObjectStore({ bucket: cfg.S3_BUCKET, region: cfg.S3_REGION, ...(cfg.S3_ENDPOINT ? { endpoint: cfg.S3_ENDPOINT } : {}) });
   // ponytail: per-worker in-memory budget ledger; replace with a usage_ledger-backed ledger for cross-process caps.
   const mirrors = process.env.REVIEW_MIRROR_ROOT;
-  // Multi-agent engine measured ~$2.5/PR on Sentry, so it defaults to $3; single-pass keeps $0.5. REVIEW_PR_USD overrides both.
-  const prUsd = Number(process.env.REVIEW_PR_USD ?? (mirrors ? 3 : 0.5));
+  // Multi-agent engine measured $1.3-$5/PR on Sentry (2/9 runs hit a $5 cap), so it defaults to $5; single-pass keeps $0.5. REVIEW_PR_USD overrides both.
+  const prUsd = Number(process.env.REVIEW_PR_USD ?? (mirrors ? 5 : 0.5));
   if (!(prUsd > 0)) throw new Error("REVIEW_PR_USD must be a positive number");
   const router = new ModelRouter(policyFromEnv(), { providers: providersFromEnv(), budget: new MemoryBudgetLedger((_t) => ({ prUsd, tenantMonthlyUsd: 500 })) });
   // ponytail: static installation token from env; replace with GitHub App JWT -> installation token exchange.
