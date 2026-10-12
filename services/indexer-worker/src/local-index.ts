@@ -61,41 +61,68 @@ export function bm25(docs: string[], terms: string[]): number[] {
 const cosine = (a: number[], b: number[]) => a.reduce((s, x, i) => s + x * b[i]!, 0);
 
 /**
+ * Content-addressed cache shared by every commit view of a repository: file text keyed by blob SHA, parse trees keyed by
+ * (path, blob SHA) because fqNames embed the path. An unchanged blob is read and parsed once, whatever PR touches it.
+ * Bounded LRU (LATENCY-PLAN H8: unbounded per-commit maps caused the heap OOM).
+ */
+export class BlobCache {
+  readonly #max: number;
+  readonly #text = new Map<string, Promise<string | undefined>>();
+  readonly #parsed = new Map<string, Promise<ParsedFile | undefined>>();
+  stats = { textHits: 0, textMisses: 0, parseHits: 0, parseMisses: 0 };
+  constructor(maxEntries = 20_000) { this.#max = maxEntries; }
+
+  #get<V>(m: Map<string, Promise<V>>, key: string, load: () => Promise<V>, hit: "textHits" | "parseHits"): Promise<V> {
+    const p = m.get(key);
+    if (p) { m.delete(key); m.set(key, p); this.stats[hit]++; return p; }
+    this.stats[hit === "textHits" ? "textMisses" : "parseMisses"]++;
+    const v = load();
+    m.set(key, v);
+    // A failed load must not poison the cache.
+    v.catch(() => { if (m.get(key) === v) m.delete(key); });
+    if (m.size > this.#max) m.delete(m.keys().next().value!);
+    return v;
+  }
+  text(blobSha: string, load: () => Promise<string | undefined>) { return this.#get(this.#text, blobSha, load, "textHits"); }
+  parsed(path: string, blobSha: string, load: () => Promise<ParsedFile | undefined>) { return this.#get(this.#parsed, `${path}\0${blobSha}`, load, "parseHits"); }
+  has(path: string, blobSha: string) { return this.#parsed.has(`${path}\0${blobSha}`); }
+  get size() { return { text: this.#text.size, parsed: this.#parsed.size }; }
+}
+
+/**
  * In-process index over a RepoSource at one commit. Lazy: nothing is read until asked; grep narrows candidates and
- * tree-sitter confirms definitions. ponytail: no SCIP here; ScipIndex (scip.ts) overlays precise definitions when a SCIP dump exists.
+ * tree-sitter confirms definitions. Pass a shared BlobCache to reuse reads/parses across commits (standing index).
+ * ponytail: no SCIP here; ScipIndex (scip.ts) overlays precise definitions when a SCIP dump exists.
  */
 export class LocalCodeIndex implements CodeIndex {
   readonly commitSha: string;
   readonly #src: RepoSource;
   #files?: Promise<Map<string, string>>;
-  readonly #text = new Map<string, Promise<string | undefined>>();
-  readonly #parsed = new Map<string, Promise<ParsedFile | undefined>>();
+  readonly #cache: BlobCache;
 
-  constructor(source: RepoSource, commitSha: string) { this.#src = source; this.commitSha = commitSha; }
+  constructor(source: RepoSource, commitSha: string, opts: { cache?: BlobCache; files?: Promise<Map<string, string>> } = {}) {
+    this.#src = source; this.commitSha = commitSha; this.#cache = opts.cache ?? new BlobCache(Number.MAX_SAFE_INTEGER);
+    if (opts.files) this.#files = opts.files;
+  }
 
   #tree() {
     return this.#files ??= this.#src.listFiles(this.commitSha).then((fs) => new Map(fs.filter((f) => acceptPath(f.path) && (f.size ?? 0) <= MAX_FILE_BYTES).map((f) => [f.path, f.blobSha])));
   }
   async paths() { return [...(await this.#tree()).keys()]; }
 
-  readFile(path: string) {
-    let p = this.#text.get(path);
-    if (!p) {
-      p = this.#tree().then(async (t) => {
-        const sha = t.get(path);
-        if (!sha) return undefined;
-        const b = await this.#src.readBlob(sha);
-        return b.subarray(0, 8000).includes(0) ? undefined : b.toString("utf8");
-      });
-      this.#text.set(path, p);
-    }
-    return p;
+  async readFile(path: string) {
+    const sha = (await this.#tree()).get(path);
+    if (!sha) return undefined;
+    return this.#cache.text(sha, async () => {
+      const b = await this.#src.readBlob(sha);
+      return b.subarray(0, 8000).includes(0) ? undefined : b.toString("utf8");
+    });
   }
 
-  parse(path: string) {
-    let p = this.#parsed.get(path);
-    if (!p) { p = this.readFile(path).then((t) => (t === undefined ? undefined : parseSource(path, t))); this.#parsed.set(path, p); }
-    return p;
+  async parse(path: string) {
+    const sha = (await this.#tree()).get(path);
+    if (!sha) return undefined;
+    return this.#cache.parsed(path, sha, () => this.readFile(path).then((t) => (t === undefined ? undefined : parseSource(path, t))));
   }
 
   async grep(pattern: string, opts: GrepOptions = {}): Promise<GrepHit[]> {

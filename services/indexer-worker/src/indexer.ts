@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import type { Message } from "@review/core";
 import type { EnvelopeCipher } from "@review/crypto";
-import { createIndexRecord, getIndexRecord, latestReadyIndex, updateIndexRecord, withTenant, EMBEDDING_DIM, type Database, type Sql } from "@review/db";
+import { branchHead, createIndexRecord, getIndexRecord, latestReadyIndex, readyIndexForCommit, setBranchHead, updateIndexRecord, withTenant, EMBEDDING_DIM, type Database, type Sql } from "@review/db";
 import type { ModelRouter } from "@review/models";
 import { tenantKey } from "@review/queue";
 import type { ObjectStore } from "@review/service-common";
@@ -95,15 +95,25 @@ const vec = (v: number[]) => `[${v.join(",")}]`;
 export async function indexRepository(deps: IndexerDeps, msg: Message<"index.requested">): Promise<IndexResult> {
   const { tenantId, payload: p } = msg;
   const embedModel = deps.router.policy.embed[0]!.model;
+  // Standing index: a commit that is already indexed is never rebuilt; a push only moves the branch head.
+  const existing = p.mode === "full" ? undefined : await withTenant(deps.db, tenantId, async (sql) => {
+    const r = await readyIndexForCommit(sql, p.repositoryId, p.commitSha);
+    if (r && p.branch) await setBranchHead(sql, tenantId, { repositoryId: p.repositoryId, branch: p.branch, indexId: r.id, commitSha: p.commitSha });
+    return r;
+  });
+  if (existing) return { indexId: existing.id, status: "ready", files: existing.fileCount, parsed: 0, reused: existing.fileCount, embedded: 0, symbols: existing.symbolCount, chunks: existing.chunkCount };
   const indexId = p.indexId ?? randomUUID();
   const base = await withTenant(deps.db, tenantId, async (sql) => {
-    const b = p.mode === "full" ? undefined : p.baseIndexId ? await getIndexRecord(sql, p.baseIndexId) : await latestReadyIndex(sql, p.repositoryId);
+    const b = p.mode === "full" ? undefined : p.baseIndexId ? await getIndexRecord(sql, p.baseIndexId)
+      : (p.branch ? await branchHead(sql, p.repositoryId, p.branch) : undefined) ?? await latestReadyIndex(sql, p.repositoryId);
     await createIndexRecord(sql, tenantId, { id: indexId, repositoryId: p.repositoryId, commitSha: p.commitSha, embedModel, ...(b ? { baseIndexId: b.id } : {}) });
     await updateIndexRecord(sql, indexId, { status: "building" });
     return b?.status === "ready" ? b : undefined;
   });
   try {
-    return await build(deps, tenantId, indexId, p.commitSha, base?.id, embedModel);
+    const r = await build(deps, tenantId, indexId, p.commitSha, base?.id, embedModel);
+    if (p.branch) await withTenant(deps.db, tenantId, (sql) => setBranchHead(sql, tenantId, { repositoryId: p.repositoryId, branch: p.branch!, indexId, commitSha: p.commitSha }));
+    return r;
   } catch (e) {
     await withTenant(deps.db, tenantId, (sql) => updateIndexRecord(sql, indexId, { status: "failed" }));
     throw e;

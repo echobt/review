@@ -104,6 +104,19 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       if (!Buffer.isBuffer(raw) || !verifySignature(secret, raw, req.headers["x-hub-signature-256"] as string | undefined)) return reply.code(401).send(err("unauthorized", "invalid signature"));
       const event = req.headers["x-github-event"];
       if (event === "ping") return reply.code(200).send({ ok: true });
+      if (event === "push") {
+        // Standing index (LATENCY-PLAN §2.2.3): every push to a branch updates that branch's index off the review path.
+        let push: { ref?: string; after?: string; deleted?: boolean; installation?: { id?: number }; repository?: { full_name?: string } };
+        try { push = JSON.parse(raw.toString("utf8")); } catch { return reply.code(400).send(err("invalid_request", "invalid JSON")); }
+        const branch = push.ref?.startsWith("refs/heads/") ? push.ref.slice(11) : undefined;
+        if (!branch || push.deleted || !/^[0-9a-f]{40}$/.test(push.after ?? "")) return reply.code(202).send({ ignored: "push" });
+        if (!push.installation?.id || !push.repository?.full_name) return reply.code(400).send(err("invalid_request", "missing push fields"));
+        const tenantId = await deps.resolveInstallation?.(String(push.installation.id));
+        if (!tenantId) return reply.code(404).send(err("unknown_installation", "installation is not linked to a tenant"));
+        const indexId = createHash("sha256").update(`${push.repository.full_name}@${push.after}`).digest("hex").slice(0, 32);
+        await deps.enqueue("index.requested", tenantId, { indexId, repositoryId: `github:${push.repository.full_name}`, commitSha: push.after!, mode: "incremental", branch }, { jobId: `index-${indexId}` });
+        return reply.code(202).send({ indexId });
+      }
       if (event !== "pull_request") return reply.code(202).send({ ignored: event ?? null });
       let body: { action?: string; installation?: { id?: number }; repository?: { full_name?: string; name?: string; owner?: { login?: string } }; pull_request?: { number?: number; head?: { sha?: string }; base?: { sha?: string } } };
       try { body = JSON.parse(raw.toString("utf8")); } catch { return reply.code(400).send(err("invalid_request", "invalid JSON")); }

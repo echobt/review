@@ -119,6 +119,33 @@ export async function updateIndexRecord(sql: Sql, id: string, u: { status: RepoI
     [id, u.status, u.languages ?? null, u.fileCount ?? null, u.symbolCount ?? null, u.chunkCount ?? null]);
 }
 
+/** Lookup: a ready index already built for exactly this commit (a second review of the same head never rebuilds). */
+export async function readyIndexForCommit(sql: Sql, repositoryId: string, commitSha: string): Promise<RepoIndex | undefined> {
+  const r = (await sql.query<Record<string, unknown>>("SELECT * FROM repo_indexes WHERE repository_id = $1 AND commit_sha = $2 AND status = 'ready' ORDER BY built_at DESC NULLS LAST LIMIT 1", [repositoryId, commitSha])).rows[0];
+  return r ? rowToIndex(r) : undefined;
+}
+
+/** Lookup: the index a tracked branch currently points at. */
+export async function branchHead(sql: Sql, repositoryId: string, branch: string): Promise<RepoIndex | undefined> {
+  const r = (await sql.query<Record<string, unknown>>("SELECT i.* FROM branch_heads b JOIN repo_indexes i ON i.id = b.index_id WHERE b.repository_id = $1 AND b.branch = $2", [repositoryId, branch])).rows[0];
+  return r ? rowToIndex(r) : undefined;
+}
+
+/** Update: move a branch head to a ready index (push webhook -> incremental index -> swap). */
+export async function setBranchHead(sql: Sql, tenantId: string, h: { repositoryId: string; branch: string; indexId: string; commitSha: string }) {
+  await sql.query(`INSERT INTO branch_heads (tenant_id, repository_id, branch, index_id, commit_sha) VALUES ($1,$2,$3,$4,$5)
+    ON CONFLICT (tenant_id, repository_id, branch) DO UPDATE SET index_id = EXCLUDED.index_id, commit_sha = EXCLUDED.commit_sha, updated_at = now()`,
+    [tenantId, h.repositoryId, h.branch, h.indexId, h.commitSha]);
+}
+
+/** Invalidation: drop one branch head (or all heads of the repo) so the next lookup misses and a rebuild is scheduled. */
+export async function invalidateBranchHead(sql: Sql, repositoryId: string, branch?: string): Promise<number> {
+  const r = branch === undefined
+    ? await sql.query("DELETE FROM branch_heads WHERE repository_id = $1 RETURNING 1", [repositoryId])
+    : await sql.query("DELETE FROM branch_heads WHERE repository_id = $1 AND branch = $2 RETURNING 1", [repositoryId, branch]);
+  return r.rows.length;
+}
+
 const rowToIndex = (r: Record<string, unknown>): RepoIndex => RepoIndex.parse({
   id: r.id, repositoryId: r.repository_id, commitSha: r.commit_sha, status: r.status, languages: r.languages ?? [],
   fileCount: num(r.file_count) ?? 0, symbolCount: num(r.symbol_count) ?? 0, chunkCount: num(r.chunk_count) ?? 0,

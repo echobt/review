@@ -4,3 +4,4 @@ export * from "./parse.ts";
 export * from "./chunk.ts";
 export * from "./retrieval.ts";
 export * from "./local-index.ts";
+export * from "./standing.ts";

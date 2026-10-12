@@ -37,6 +37,19 @@ test("webhook signature: valid ping 200, invalid/missing 401", async () => {
   expect((await hook("ping", { zen: "x" }, null)).statusCode).toBe(401);
 });
 
+test("push webhook enqueues an incremental index for the branch (standing index update); tags/deletes ignored", async () => {
+  const after = "c".repeat(40);
+  const push = { ref: "refs/heads/main", after, installation: { id: 42 }, repository: { full_name: "o/r" } };
+  const n = sent.length;
+  const r = await hook("push", push);
+  expect(r.statusCode).toBe(202);
+  expect(sent.slice(n)).toEqual([{ q: "index.requested", tenant: tenantId, payload: { indexId: r.json().indexId, repositoryId: "github:o/r", commitSha: after, mode: "incremental", branch: "main" }, jobId: `index-${r.json().indexId}` }]);
+  expect((await hook("push", { ...push, ref: "refs/tags/v1" })).json()).toEqual({ ignored: "push" });
+  expect((await hook("push", { ...push, deleted: true })).json()).toEqual({ ignored: "push" });
+  expect((await hook("push", { ...push, installation: { id: 9 } })).statusCode).toBe(404);
+  expect(sent).toHaveLength(n + 1);
+});
+
 test("pull_request opened creates review and enqueues with deterministic jobId; redelivery is idempotent", async () => {
   const r = await hook("pull_request", prEvent);
   expect(r.statusCode).toBe(202);

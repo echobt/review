@@ -18,6 +18,7 @@ const FIXTURES: Record<string, string> = {
   symbols: "INSERT INTO symbols (id, tenant_id, index_id, blob_sha, path, kind, name, fq_name, start_line, end_line) VALUES ('sym-$s', '$t', 'idx-$s', 'b1', 'a.ts', 'function', 'f', 'a.f', 1, 2)",
   symbol_edges: "INSERT INTO symbol_edges (tenant_id, index_id, src_symbol_id, path, kind, dst_name, line) VALUES ('$t', 'idx-$s', 'sym-$s', 'a.ts', 'call', 'g', 1)",
   chunks: `INSERT INTO chunks (id, tenant_id, index_id, path, start_line, end_line, blob_sha, content_hash, content_ciphertext, tsv, embedding) VALUES ('chk-$s', '$t', 'idx-$s', 'a.ts', 1, 2, 'b1', 'h', '\\x00', to_tsvector('simple', 'f'), '${vec}')`,
+  branch_heads: "INSERT INTO branch_heads (tenant_id, repository_id, branch, index_id, commit_sha) VALUES ('$t', 'repo-$s', 'main', 'idx-$s', 'abc1234')",
   embedding_cache: `INSERT INTO embedding_cache (tenant_id, model, content_hash, embedding) VALUES ('$t', 'm', 'h', '${vec}')`,
   pull_requests: "INSERT INTO pull_requests (id, tenant_id, repository_id, number) VALUES ('pr-$s', '$t', 'repo-$s', 1)",
   reviews: "INSERT INTO reviews (id, tenant_id, repository_id, status) VALUES ('rev-$s', '$t', 'repo-$s', 'queued')",
