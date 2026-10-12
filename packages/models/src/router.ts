@@ -156,8 +156,12 @@ export class ModelRouter {
     for (let round = 0; round < 2; round++) {
       last = await this.chat(tier, msgs, { ...opts, tools: [tool], toolChoice: name });
       const raw = last.toolCalls.find((c) => c.name === name)?.arguments ?? last.content ?? "";
+      // Models often wrap JSON in prose or fences; extract the outermost object so validation (not parsing) decides.
       let parsed: unknown;
-      try { parsed = JSON.parse(raw); } catch { parsed = undefined; }
+      try { parsed = JSON.parse(raw); } catch {
+        const s = raw.indexOf("{"); const e = raw.lastIndexOf("}");
+        try { parsed = s >= 0 && e > s ? JSON.parse(raw.slice(s, e + 1)) : undefined; } catch { parsed = undefined; }
+      }
       const r = schema.safeParse(parsed);
       if (r.success) return { data: r.data, result: last };
       msgs = [...messages, { role: "user", content: `Your previous ${name} call was invalid: ${r.error.issues.slice(0, 5).map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}. Call ${name} again with valid arguments.` }];

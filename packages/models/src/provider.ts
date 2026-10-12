@@ -85,7 +85,10 @@ export class OpenAICompatibleProvider implements LLMProvider {
     }
     // Response bodies may echo prompts: never include them in errors.
     if (!res.ok) { await res.body?.cancel().catch(() => undefined); throw new ProviderError(this.name, `HTTP ${res.status}`, res.status); }
-    return res.json();
+    // Some OpenAI-compatible gateways append a `data: [DONE]` SSE trailer even without streaming; strip it.
+    const text = await res.text();
+    const cut = text.indexOf('data: [DONE]');
+    return JSON.parse(cut >= 0 ? text.slice(0, cut) : text);
   }
 
   async chat(req: ChatRequest): Promise<ChatResult> {
