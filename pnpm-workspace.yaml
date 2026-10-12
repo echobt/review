@@ -1,5 +1,6 @@
 packages:
   - packages/*
   - services/*
+  - scripts/bench
 onlyBuiltDependencies:
   - msgpackr-extract

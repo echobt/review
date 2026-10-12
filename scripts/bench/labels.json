@@ -1,0 +1,75 @@
+{
+ "sentry-01": {
+  "path": "src/sentry/api/endpoints/organization_auditlogs.py",
+  "startLine": 11,
+  "endLine": 11,
+  "note": "import line; class exists in head paginator.py (disputed, GREPTILE-GAP \u00a72)"
+ },
+ "sentry-02": {
+  "path": "src/sentry/api/paginator.py",
+  "startLine": 877,
+  "endLine": 882,
+  "acceptAlso": [
+   {
+    "path": "src/sentry/api/paginator.py",
+    "startLine": 179,
+    "endLine": 184
+   }
+  ]
+ },
+ "sentry-03": {
+  "path": "src/sentry/testutils/factories.py",
+  "startLine": 353,
+  "endLine": 353
+ },
+ "sentry-04": {
+  "path": "src/sentry/integrations/github/integration.py",
+  "startLine": 501,
+  "endLine": 504
+ },
+ "sentry-05": {
+  "path": "src/sentry/issues/endpoints/browser_reporting_collector.py",
+  "startLine": 115,
+  "endLine": 118
+ },
+ "sentry-06": {
+  "path": "src/sentry/spans/consumers/process/flusher.py",
+  "startLine": 199,
+  "endLine": 199,
+  "acceptAlso": [
+   {
+    "path": "src/sentry/spans/consumers/process/flusher.py",
+    "startLine": 185,
+    "endLine": 185
+   }
+  ]
+ },
+ "sentry-07": {
+  "path": "src/sentry/integrations/services/assignment_source.py",
+  "startLine": 18,
+  "endLine": 18
+ },
+ "sentry-08": {
+  "path": "src/sentry/monitors/logic/incident_occurrence.py",
+  "startLine": 168,
+  "endLine": 168,
+  "acceptAlso": [
+   {
+    "path": "src/sentry/monitors/logic/incident_occurrence.py",
+    "startLine": 160,
+    "endLine": 162
+   }
+  ]
+ },
+ "sentry-09": {
+  "path": "src/sentry/remote_subscriptions/consumers/queue_consumer.py",
+  "startLine": 132,
+  "endLine": 133,
+  "note": "valid on Python 3.13 (pinned 3.13.1); disputed"
+ },
+ "sentry-10": {
+  "path": "src/sentry/incidents/grouptype.py",
+  "startLine": 11,
+  "endLine": 12
+ }
+}

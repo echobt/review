@@ -1,0 +1,29 @@
+{
+  "name": "@review/bench",
+  "version": "0.1.0",
+  "description": "Greptile-50 benchmark harness: extract, run, judge, report (GREPTILE-GAP §1.2).",
+  "type": "module",
+  "license": "Apache-2.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "extract": "node extract.ts",
+    "run": "node run.ts",
+    "judge": "node judge.ts",
+    "report": "node report.ts"
+  },
+  "dependencies": {
+    "@review/core": "workspace:*",
+    "@review/models": "workspace:*",
+    "@review/queue": "workspace:*",
+    "@review/agent-runner": "workspace:*",
+    "@review/review-orchestrator": "workspace:*",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "@types/node": "^24.0.0",
+    "vitest": "^5.0.3"
+  }
+}
