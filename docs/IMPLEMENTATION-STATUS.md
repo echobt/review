@@ -53,6 +53,30 @@ All six boot against the compose stack (Postgres 16 + pgvector, Valkey, OTel col
 | 5 | Repo access: `RepoCache` = one bare partial mirror per repo (`--filter=blob:limit=1m`, never shallow), single-flight incremental fetch per commit (lazy fetch disabled for the presence check), worktree per review removed in `finally` | `review-orchestrator/src/repo-cache.ts`, `main.ts`, `scripts/bench/run.ts` | `latency.test.ts` (real git) | File reads come from the mirror via the in-process index, not object-store blobs |
 | 6 | Instrumentation: `phase_start/phase_end`, `llm` (role, model, latency, tokens, cached), `tool` (ms), `heap` every 10 s; `--warm`; report p50/p95/max, per-phase p50/p95, LLM calls/PR, cache hit ratio, peak heap, SLO (p50 <= 150 s, p95 <= 300 s) verdict | `scripts/bench/run.ts`, `report.ts` | `bench.test.ts` | OTel spans per phase not added (events only) |
 
+### Live Sentry 10-case run (2026-10-12, `bench-runs/latency-1` in the job dir)
+
+Command: `node --max-old-space-size=4096 scripts/bench/run.ts --repo sentry --mirrors <mirrors> --out <run> --concurrency 1 --warm --depth standard`, then `judge.ts` (LLM judge `cx/gpt-6-sol` x3) and `report.ts`.
+Models: an OpenAI-compatible coding gateway (no OpenRouter key on this host). DeepSeek and GLM returned 429, so tiers were small `cx/gpt-5.6-sol`, medium `cx/gpt-5.6-terra`, large `cx/gpt-6-sol`, with `MODEL_TIMEOUT_MS=600000`. That is a different model set from the baseline run, so the comparison is not like-for-like.
+
+| Metric | Baseline (multi-agent, before) | This run | Target |
+|---|---|---|---|
+| Catch rate | 4/10 | **3/10** (sentry-02, -07, -10); 6 of 10 cases partial | >= 4/10 |
+| Latency p50 | ~23 min (~1,380 s) | **788 s** | <= 150 s |
+| Latency p95 / max | max ~62 min, sentry-01 OOM at ~78 min | **1,154 s** / 1,154 s | <= 300 s |
+| Median cost / PR | $2.48 | $2.67 (gateway has no prices; budget used tier list prices) | <= $2.48 |
+| LLM calls / PR (median) | not measured | 33 | - |
+| Prompt cache hit ratio | 0 | 0 (cache_control not sent to this gateway) | - |
+| Peak heap | OOM | 3,182 MB, climbing every case (544 MB on case 1) | below worker limit |
+
+Phase p50 / p95 (s): context pack 12 / 102, planner 602 / 656, hunt task 865 / 1,946 (sum over the pool), verify 182 / 384, summary 8 / 18, index lookup 0.
+
+**SLO not met.** The parallelised steps take seconds; the critical path is single gateway calls that stall for minutes. The planner hit the 600 s per-call timeout on 6 of 10 cases, so those cases ran with no hypotheses (free hunt only). That probably explains the recall loss. Hunter calls stalled for 500-700 s on most cases. The cleanest case (sentry-08) took 218 s, and its single planner call took 135 s of that.
+
+Open issues from the run (not fixed; they change engine behaviour):
+- No per-call deadline below 600 s, no planner output cap (one planner call produced 14,264 output tokens).
+- `git grep` output above 64 MB fails the tool call (sentry-05) instead of being truncated; this bug predates this work.
+- Peak heap grows across cases in one process (standing-index blob/parse cache bounded by entry count, not bytes); bound by bytes before production.
+
 ## SDKs
 
 | Package | Implemented | Not done |
