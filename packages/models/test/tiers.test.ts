@@ -27,3 +27,16 @@ test("gateway provider registered only when GATEWAY_BASE_URL is set; key read la
   expect(providersFromEnv({}).map((p) => p.name)).toEqual(["openrouter"]);
   expect(providersFromEnv({ GATEWAY_BASE_URL: "http://gw.test/v1" }).map((p) => p.name)).toEqual(["openrouter", "gateway"]);
 });
+
+test("MODEL_REASONING maps to the request's reasoning field; unset sends none", async () => {
+  const bodies: Record<string, unknown>[] = [];
+  const f = (async (_u: string, init: RequestInit) => {
+    bodies.push(JSON.parse(init.body as string));
+    return new Response(JSON.stringify({ choices: [{ message: { content: "ok" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }), { status: 200 });
+  }) as typeof fetch;
+  const call = (env: NodeJS.ProcessEnv) => providersFromEnv({ GATEWAY_BASE_URL: "http://gw.test/v1", GATEWAY_API_KEY: "k", ...env }, f)[1]!.chat({ model: "m", messages: [{ role: "user", content: "x" }] });
+  await call({ MODEL_REASONING: "off" });
+  await call({ MODEL_REASONING: "low" });
+  await call({});
+  expect(bodies.map((b) => b.reasoning)).toEqual([{ enabled: false }, { effort: "low" }, undefined]);
+});

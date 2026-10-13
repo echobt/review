@@ -180,6 +180,7 @@ export class ModelRouter {
     const tool: ToolSpec = { name, description: opts.description ?? "Return the structured result.", parameters: z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown> };
     let msgs = messages;
     let last: RoutedResult | undefined;
+    let why = "";
     for (let round = 0; round < 2; round++) {
       last = await this.chat(tier, msgs, { ...opts, tools: [tool], toolChoice: name });
       const raw = last.toolCalls.find((c) => c.name === name)?.arguments ?? last.content ?? "";
@@ -191,9 +192,10 @@ export class ModelRouter {
       }
       const r = schema.safeParse(parsed);
       if (r.success) return { data: r.data, result: last };
+      why = `${r.error.issues.slice(0, 3).map((i) => `${i.path.join(".") || "<root>"}: ${i.message}`).join("; ")}`;
       msgs = [...messages, { role: "user", content: `Your previous ${name} call was invalid: ${r.error.issues.slice(0, 5).map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}. Call ${name} again with valid arguments.` }];
     }
-    throw new Error(`structured output failed validation after repair (${last?.provider}/${last?.model})`);
+    throw new Error(`structured output failed validation after repair (${last?.provider}/${last?.model}): ${why.slice(0, 300)}`);
   }
 
   async embed(input: string[], opts: { scope: BudgetScope; signal?: AbortSignal }): Promise<{ vectors: number[][]; model: string; dimensions: number; costUsd: number }> {

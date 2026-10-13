@@ -64,6 +64,11 @@ export interface OpenAICompatibleOptions {
   headers?: Record<string, string>;
   fetch?: typeof fetch;
   timeoutMs?: number;
+  /**
+   * OpenRouter-style reasoning control sent with every request. DeepSeek V4.1 Flash otherwise spends the whole max_tokens budget
+   * on hidden reasoning and returns finish_reason=length with no tool call (measured: 0/8 hunter+verifier calls valid).
+   */
+  reasoning?: { enabled: boolean } | { effort: "low" | "medium" | "high" };
   /** Send cache_control content blocks and session_id (OpenRouter/Anthropic). Off for gateways that reject unknown fields. */
   promptCache?: boolean;
 }
@@ -106,6 +111,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     const body = ChatResponse.parse(await this.#post("/chat/completions", {
       model: req.model, messages: wireMessages(req.messages, this.#o.promptCache === true), max_tokens: req.maxTokens ?? 1024, temperature: req.temperature ?? 0,
       ...(this.#o.promptCache && req.sessionId ? { session_id: req.sessionId.slice(0, 256) } : {}),
+      ...(this.#o.reasoning ? { reasoning: this.#o.reasoning } : {}),
       ...(req.tools?.length ? { tools: req.tools.map((t) => ({ type: "function", function: t })) } : {}),
       ...(req.toolChoice ? { tool_choice: req.toolChoice === "required" || req.toolChoice === "auto" ? req.toolChoice : { type: "function", function: { name: req.toolChoice } } } : {}),
       ...(req.jsonMode ? { response_format: { type: "json_object" } } : {}),
