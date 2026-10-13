@@ -3,7 +3,7 @@ import { pgDatabase } from "@review/db";
 import { createProducer } from "@review/queue";
 import { memoryObjectStore, readSecret, runWorker, s3ObjectStore } from "@review/service-common";
 import { runAgent } from "@review/agent-runner";
-import { sandboxExecutor, selectDriver } from "@review/sandbox-runner";
+import { runSemgrep, sandboxExecutor, selectDriver } from "@review/sandbox-runner";
 import { OctokitlessGitHubClient } from "./github.ts";
 import { handle } from "./handler.ts";
 import { gitMirrorIndexer } from "./pack.ts";
@@ -29,9 +29,11 @@ await runWorker("review-orchestrator", "review.requested", ({ cfg, transport }) 
   const repos = mirrors ? new RepoCache(mirrors, { workspaceRoot: process.env.SANDBOX_WORKSPACE_ROOT ?? "/tmp/review-ws", ...(remote ? { remote: (id: string) => remote.replace("{repo}", id) } : {}) }) : undefined;
   const indexer = repos ? gitMirrorIndexer(repos) : undefined;
   const driver = mirrors && process.env.REVIEW_EXECUTION === "1" ? selectDriver(process.env) : undefined;
+  const sastDriver = mirrors && process.env.REVIEW_SEMGREP === "1" ? driver ?? selectDriver(process.env) : undefined;
+  const semgrep = sastDriver ? (files: Record<string, string>) => runSemgrep(sastDriver, { rules: process.env.SEMGREP_RULES ?? "p/default", files }) : undefined;
   const execution = driver && repos ? async (repo: string, sha: string) => { const wt = await repos.worktree(repo, sha); return { ...sandboxExecutor(driver, wt.dir), release: wt.release }; } : undefined;
   return async (msg) => {
     await handle({ store, producer, executor: (req) => runAgent({ router, ...(db ? { db } : {}) }, req), ...(db ? { db } : {}), ...(github ? { github } : {}),
-      ...(indexer ? { indexer, router } : {}), ...(execution ? { execution } : {}) }, msg);
+      ...(indexer ? { indexer, router } : {}), ...(execution ? { execution } : {}), ...(semgrep ? { semgrep } : {}) }, msg);
   };
 });

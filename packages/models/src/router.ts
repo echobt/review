@@ -78,6 +78,8 @@ export interface CallOptions {
   toolChoice?: string;
   jsonMode?: boolean;
   sessionId?: string;
+  /** Per-attempt deadline: a hung call is aborted and retried / falls through to the next target instead of stalling the review. */
+  timeoutMs?: number;
   signal?: AbortSignal;
 }
 
@@ -140,10 +142,12 @@ export class ModelRouter {
         }
         for (let i = 0; i < this.policy.retry.attempts; i++) {
           const t0 = this.#now();
+          const deadline = opts.timeoutMs ? AbortSignal.timeout(opts.timeoutMs) : undefined;
+          const signal = deadline && opts.signal ? AbortSignal.any([opts.signal, deadline]) : deadline ?? opts.signal;
           try {
             const r = await provider.chat({ model: target.model, messages, maxTokens: outTok,
               ...(opts.tools ? { tools: opts.tools } : {}), ...(opts.toolChoice ? { toolChoice: opts.toolChoice } : {}),
-              ...(opts.jsonMode ? { jsonMode: true } : {}), ...(opts.sessionId ? { sessionId: opts.sessionId } : {}), ...(opts.signal ? { signal: opts.signal } : {}) });
+              ...(opts.jsonMode ? { jsonMode: true } : {}), ...(opts.sessionId ? { sessionId: opts.sessionId } : {}), ...(signal ? { signal } : {}) });
             const actual = r.usage.costUsd ?? cost(target, r.usage.inputTokens, r.usage.outputTokens);
             await this.#budget.settle(opts.scope, est, actual);
             br.success();

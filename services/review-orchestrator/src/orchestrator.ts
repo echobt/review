@@ -4,7 +4,7 @@ import type { FindingDraft } from "@review/schemas";
 import { getTenantConfig, insertFindings, repositoryFeedback, suppressedFingerprints, updateReview, withTenant, type Database } from "@review/db";
 import type { ModelRouter } from "@review/models";
 import type { Producer } from "@review/queue";
-import { execLanguage, validateExecution, type ExecutionPort } from "@review/sandbox-runner";
+import { execLanguage, validateExecution, type ExecutionPort, type SastResult } from "@review/sandbox-runner";
 import { filterFiles, isCode, parseDiff, planReview, type DiffFile } from "./plan.ts";
 import { addedLines, buildContextPack, type ContextPack, type IndexerPort } from "./pack.ts";
 import { Candidate, runPipeline } from "./review.ts";
@@ -37,6 +37,8 @@ export interface OrchestratorDeps {
   /** Execution port bound to a checkout of repo@headSha (E0-E3); `release` (if any) removes the worktree after the review. */
   execution?: (repositoryId: string, headSha: string) => Promise<ExecutionPort & { release?: () => Promise<void> }>;
   log?: (e: Record<string, unknown>) => void;
+  /** SAST over the changed files' head text (sandboxed semgrep in production); runs before any LLM call, survivors go to the verifier. */
+  semgrep?: (files: Record<string, string>) => Promise<SastResult[]>;
 }
 
 export interface ReviewInput { tenantId: string; reviewId: string; repositoryId: string; diff: string; pullRequest?: PullRequestRef; headSha?: string }
@@ -132,6 +134,15 @@ function changedClasses(files: DiffFile[]): { path: string; name: string }[] {
   return files.flatMap((f) => addedLines(f).flatMap(({ text }) => { const m = /^\s*class\s+([A-Za-z_]\w*)/.exec(text); return m ? [{ path: f.path, name: m[1]! }] : []; }));
 }
 
+/** Semgrep hits within +/-3 lines of an added line (diff-anchored) become verifier candidates; the rest are dropped. */
+export function semgrepSeeds(results: SastResult[], added: Map<string, number[]>): Candidate[] {
+  return results.filter((r) => (added.get(r.path) ?? []).some((l) => l >= r.startLine - 3 && l <= r.endLine + 3)).slice(0, 20).map((r) => Candidate.parse({
+    category: r.cwe.length || r.severity === "critical" ? "security" : "bug", severity: r.severity, confidence: 0.6,
+    location: { path: r.path, startLine: r.startLine, endLine: Math.min(r.endLine, r.startLine + 9) },
+    title: r.message.slice(0, 200), body: `semgrep ${r.ruleId}: ${r.message}`.slice(0, 20_000), evidence_text: `semgrep rule ${r.ruleId}${r.cwe.length ? ` (${r.cwe.join(", ")})` : ""}`,
+  }));
+}
+
 /** Missing internal imports found by the pack are deterministic defects: escalate them to the verifier as candidates. */
 function importSeeds(pack: ContextPack): Candidate[] {
   return pack.imports.filter((i) => i.status === "missing").slice(0, 10).map((i) => Candidate.parse({
@@ -158,6 +169,10 @@ async function multiAgent(deps: OrchestratorDeps, input: ReviewInput, files: Dif
   early?.catch(() => undefined);
   try {
     const index = await timed("index.ensure", () => deps.indexer!.ensureIndexed(input.repositoryId, headSha));
+    const sast = deps.semgrep ? timed("sast.semgrep", async () => {
+      const texts = Object.fromEntries((await Promise.all(code.map(async (f) => [f.path, await index.readFile(f.path)] as const))).filter((e): e is readonly [string, string] => e[1] !== undefined));
+      return semgrepSeeds(await deps.semgrep!(texts), added);
+    }).catch((e) => { log?.({ event: "error", error: `semgrep: ${(e as Error).message}` }); return []; }) : Promise.resolve([]);
     const pack = await timed("pack.build", () => buildContextPack(index, code, { log: (section, ms) => log?.({ event: "phase_end", phase: `pack.${section}`, ms }) }));
     log?.({ event: "pack", ...pack.stats, files: pack.files.length, definitions: pack.definitions.length, classes: pack.classes.length, imports: pack.imports.length });
     const det = early?.then((r) => r.findings.map((f) => f.location), () => []);
@@ -165,7 +180,7 @@ async function multiAgent(deps: OrchestratorDeps, input: ReviewInput, files: Dif
     log?.({ event: "tier", depth: auto.depth, reason: auto.reason });
     const scope = { tenantId: input.tenantId, reviewId: input.reviewId };
     const result = await runPipeline({ router: deps.router!, index, scope, ...(log ? { log } : {}), ...(det ? { deterministic: det } : {}) }, code, pack, { ...config, reviewDepth: auto.depth },
-      { seeds: Promise.resolve(importSeeds(pack)) });
+      { seeds: sast.then((s) => [...importSeeds(pack), ...s]) });
     if (result.tasks > 0 && result.failures >= result.tasks) throw new Error(`all ${result.tasks} review agents failed`);
     const findings: Finding[] = result.kept.map(({ evidence_text: _e, test: _t, ...d }) => Finding.parse({ ...d, id: randomUUID(), reviewId: input.reviewId, source: "llm" }));
     let executionFindings = 0;

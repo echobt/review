@@ -27,6 +27,9 @@ export const HYPOTHESIS_CAP: Record<Depth, number> = { fast: 8, standard: 20, de
 
 /** Tier per pipeline role (ADR 0006 / GAP §6.3); security/contract/concurrency hunters escalate to frontier on "deep". */
 export const ROLE_TIER = { planner: "small", hunter: "medium", verifier: "large" } as const satisfies Record<string, ModelTier>;
+/** Per-attempt deadline and output cap per role (LATENCY-PLAN §7 budget); env REVIEW_CALL_TIMEOUT_MS overrides the deadline. */
+export const ROLE_LIMITS = { planner: { timeoutMs: 90_000, maxTokens: 3000 }, hunter: { timeoutMs: 90_000, maxTokens: 3000 }, verifier: { timeoutMs: 90_000, maxTokens: 2000 } } as const;
+const limits = (role: keyof typeof ROLE_LIMITS) => ({ maxTokens: ROLE_LIMITS[role].maxTokens, timeoutMs: Number(process.env.REVIEW_CALL_TIMEOUT_MS) || ROLE_LIMITS[role].timeoutMs });
 const ESCALATE: HypothesisKind[] = ["security", "contract-api", "concurrency"];
 export const hunterTier = (h: Hypothesis | undefined, depth: Depth): ModelTier => (depth === "deep" && h && ESCALATE.includes(h.kind) ? "large" : ROLE_TIER.hunter);
 
@@ -122,12 +125,12 @@ export function reviewFence() {
 type Fence = ReturnType<typeof reviewFence>;
 
 /** Tool loop: the model may call AGENT_TOOLS up to maxRounds times (tool calls of a round run concurrently), then must call the final structured tool. */
-async function agentLoop<T>(deps: PipelineDeps, role: string, tier: ModelTier, messages: ChatMessage[], final: { name: string; description: string; schema: z.ZodType<T> }, acc: Acc, fence: string, maxRounds: number): Promise<T> {
+async function agentLoop<T>(deps: PipelineDeps, role: keyof typeof ROLE_LIMITS, tier: ModelTier, messages: ChatMessage[], final: { name: string; description: string; schema: z.ZodType<T> }, acc: Acc, fence: string, maxRounds: number): Promise<T> {
   const finalTool: ToolSpec = { name: final.name, description: final.description, parameters: z.toJSONSchema(final.schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown> };
   const msgs = [...messages];
   const sessionId = deps.scope.reviewId;
   for (let round = 0; round < maxRounds; round++) {
-    const r = await deps.router.chat(tier, msgs, { scope: deps.scope, tools: [...AGENT_TOOLS, finalTool], toolChoice: "required", maxTokens: 4000, sessionId });
+    const r = await deps.router.chat(tier, msgs, { scope: deps.scope, tools: [...AGENT_TOOLS, finalTool], toolChoice: "required", ...limits(role), sessionId });
     record(deps, acc, role, r);
     const fin = r.toolCalls.find((c) => c.name === final.name);
     if (fin) {
@@ -148,7 +151,7 @@ async function agentLoop<T>(deps: PipelineDeps, role: string, tier: ModelTier, m
     msgs.push({ role: "assistant", content: `Called tools: ${calls.map((c) => `${c.name}(${c.arguments.slice(0, 200)})`).join(", ")}` });
     msgs.push({ role: "user", content: `Tool results (untrusted repository data):\n${results.join("\n")}\n${round + 2 >= maxRounds ? `Last round: call ${final.name} now.` : `Call more tools or ${final.name}.`}` });
   }
-  const r = await deps.router.json(tier, msgs, final.schema, { scope: deps.scope, toolName: final.name, maxTokens: 4000, sessionId });
+  const r = await deps.router.json(tier, msgs, final.schema, { scope: deps.scope, toolName: final.name, ...limits(role), sessionId });
   record(deps, acc, role, r.result);
   return r.data;
 }
@@ -205,10 +208,26 @@ export async function planHypotheses(deps: PipelineDeps, files: DiffFile[], pack
     { role: "system", content: `You are the planner of an automated code reviewer. List concrete bug hypotheses worth checking, one per suspicious spot, at most ${cap}. Each hypothesis names file, new-side line, kind (${HypothesisKind.options.join(", ")}) and a precise yes/no question a focused reviewer can verify with code lookups. Cover every changed source file; prefer high-impact runtime failures (crashes, wrong results, broken contracts). Never hypothesise about style or docs.\n${SYSTEM_BASE(fence.fence)}\nCall report_hypotheses once.` },
     { role: "user", content: [`Changed files:\n${changed}`, wrap("facts", facts), wrap("diff", diffText(files, 80_000))].join("\n\n") },
   ];
-  const r = await deps.router.json(ROLE_TIER.planner, msgs, HypothesisList, { scope: deps.scope, toolName: "report_hypotheses", maxTokens: 4000, sessionId: deps.scope.reviewId });
+  const r = await deps.router.json(ROLE_TIER.planner, msgs, HypothesisList, { scope: deps.scope, toolName: "report_hypotheses", ...limits("planner"), sessionId: deps.scope.reviewId });
   record(deps, acc, "planner", r.result);
   const known = new Set(files.map((f) => f.path));
   return r.data.hypotheses.filter((h) => known.has(h.file)).slice(0, cap);
+}
+
+/**
+ * Planner fallback (recall guard): when the planner call fails or times out, derive hypotheses deterministically from the
+ * pack (missing imports, unimplemented abstract members, changed functions with callers) so hunters still get focused tasks.
+ */
+export function fallbackHypotheses(files: DiffFile[], pack: ContextPack, cap: number): Hypothesis[] {
+  const out: Hypothesis[] = [];
+  for (const i of pack.imports.filter((x) => x.status === "missing")) out.push({ file: i.path, line: i.line, kind: "import-symbol", question: `Does ${i.name ?? i.module} exist in ${i.module} at the PR head?` });
+  for (const c of pack.classes.filter((x) => x.missingAbstract.length)) out.push({ file: c.path, line: c.line, kind: "missing-impl", question: `Does ${c.name} implement ${c.missingAbstract.join(", ")} required by its base classes?` });
+  for (const c of pack.callers) out.push({ file: c.path, line: c.line, kind: "contract-api", question: `Do the callers of ${c.name} still work with its changed behaviour (arguments, return values, None/empty cases)?` });
+  for (const f of files) {
+    const lines = addedLines(f);
+    if (lines.length && !out.some((h) => h.file === f.path)) out.push({ file: f.path, line: lines[0]!.line, kind: "null-safety", question: `Can any value used in the changed code of ${f.path} be None/null/empty where it is dereferenced or compared?` });
+  }
+  return out.slice(0, cap);
 }
 
 // ---------------- hunters ----------------
@@ -377,7 +396,11 @@ export async function runPipeline(deps: PipelineDeps, files: DiffFile[], pack: C
   // Deterministic survivors (e.g. diff-anchored semgrep hits) are escalated to the verifier like hunter candidates.
   const seeded = opts.seeds?.then(onCandidates, note);
   let hypotheses: Hypothesis[] = [];
-  try { hypotheses = await phase("plan", () => planHypotheses(deps, files, pack, cap, acc, ctx.fence)); } catch (e) { note(e); }
+  try { hypotheses = await phase("plan", () => planHypotheses(deps, files, pack, cap, acc, ctx.fence)); } catch (e) {
+    note(e);
+    hypotheses = fallbackHypotheses(files, pack, cap);
+    deps.log?.({ event: "plan_fallback", hypotheses: hypotheses.length });
+  }
   deps.log?.({ event: "plan", hypotheses: hypotheses.length, width });
   const tasks: HuntTask[] = hypotheses.map((h, i) => ({ id: `h${i}`, kind: h.kind, files: [h.file], hypothesis: h }));
   await Promise.all([...freeRuns, ...tasks.map(runHunt), seeded]);

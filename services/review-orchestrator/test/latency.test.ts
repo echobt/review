@@ -6,7 +6,9 @@ import { expect, test } from "vitest";
 import { TenantConfig } from "@review/core";
 import { LocalCodeIndex, memoryRepoSource } from "@review/indexer-worker";
 import { MemoryBudgetLedger, MockProvider, ModelRouter, OpenAICompatibleProvider, RoutingPolicy, toolResult, wireMessages, type ChatRequest } from "@review/models";
-import { buildContextPack, Candidate, gitMirrorIndexer, parseDiff, RepoCache, runPipeline, selectDepth, tierSignals, TIER_WIDTH } from "../src/index.ts";
+import { buildContextPack, Candidate, fallbackHypotheses, gitMirrorIndexer, parseDiff, RepoCache, runPipeline, runReview, selectDepth, semgrepSeeds, tierSignals, TIER_WIDTH } from "../src/index.ts";
+import { createProducer, memoryTransport } from "@review/queue";
+import { ProviderError } from "@review/models";
 
 const exec = promisify(execFile);
 const C = "f".repeat(40);
@@ -162,4 +164,57 @@ test("repo cache: partial mirror cloned once, missing commit fetched incremental
   await wt.release();
   expect((await exec("git", ["-C", cache.dir("acme"), "worktree", "list"])).stdout.split("\n").filter(Boolean)).toHaveLength(1);
   await expect(indexer.ensureIndexed("../x", s1)).rejects.toThrow(/invalid repository id/);
+});
+
+test("per-attempt deadline: a hung call is aborted and falls through to the next target (no multi-minute stall)", async () => {
+  const hung = new MockProvider("hung", [(req: ChatRequest) => new Promise((_, reject) => req.signal?.addEventListener("abort", () => reject(new ProviderError("hung", "transport: TimeoutError"))))]);
+  const ok = new MockProvider("ok", [toolResult("respond", { n: 1 })]);
+  const p = RoutingPolicy.parse({ tiers: { small: [{ ...t("a"), provider: "hung" }, { ...t("b"), provider: "ok" }], medium: [t("m")], large: [t("l")] }, embed: [{ ...t("e"), dimensions: 8 }], retry: { attempts: 1 }, downgrade: false });
+  const router = new ModelRouter(p, { providers: [hung, ok], budget: new MemoryBudgetLedger({ prUsd: 10, tenantMonthlyUsd: 10 }), sleep: async () => {} });
+  const { z } = await import("zod");
+  const r = await router.json("small", [{ role: "user", content: "x" }], z.object({ n: z.number() }), { scope: { tenantId: "t" }, timeoutMs: 20 });
+  expect(r.data.n).toBe(1);
+  expect(r.result.attempts.map((a) => [a.provider, a.ok])).toEqual([["hung", false], ["ok", true]]);
+});
+
+test("planner failure falls back to deterministic hypotheses, so hunters still get focused tasks (recall guard)", async () => {
+  const mock = new MockProvider("mock", [(req: ChatRequest) => {
+    const sys = req.messages[0]!.content;
+    if (sys.includes("planner")) throw new ProviderError("mock", "HTTP 503", 503);
+    if (sys.includes("verifier")) return toolResult("report_verdict", { keep: false, confidence: 0.1, severity: "low" });
+    return toolResult("report_findings", { findings: [] });
+  }]);
+  const router = new ModelRouter(policy, { providers: [mock], budget: new MemoryBudgetLedger({ prUsd: 10, tenantMonthlyUsd: 10 }), sleep: async () => {} });
+  const pack = await buildContextPack(ix, files);
+  const events: Record<string, unknown>[] = [];
+  const r = await runPipeline({ router, index: ix, scope: { tenantId: "t", reviewId: "r" }, log: (e) => events.push(e) }, files, pack, TenantConfig.parse({}));
+  expect(r.hypotheses.length).toBeGreaterThan(0);
+  expect(r.hypotheses).toEqual(fallbackHypotheses(files, pack, 20));
+  expect(events.find((e) => e.event === "plan_fallback")).toMatchObject({ hypotheses: r.hypotheses.length });
+  expect(mock.requests.filter((q) => q.messages[0]!.content.includes("bug hunter")).length).toBe(1 + r.hypotheses.length);
+});
+
+test("semgrep runs before the LLM pipeline; diff-anchored hits become verifier candidates, others are dropped", async () => {
+  const sast = [
+    { ruleId: "py.eval", message: "eval of user input", path: "src/rate.py", startLine: 2, endLine: 2, severity: "high" as const, cwe: ["CWE-94"], tags: [] },
+    { ruleId: "py.far", message: "unrelated", path: "src/other.py", startLine: 50, endLine: 50, severity: "low" as const, cwe: [], tags: [] },
+  ];
+  expect(semgrepSeeds(sast, new Map([["src/rate.py", [1, 2, 3, 4]]])).map((c) => [c.location.path, c.category])).toEqual([["src/rate.py", "security"]]);
+  const order: string[] = [];
+  const mock = new MockProvider("mock", [(req: ChatRequest) => {
+    const sys = req.messages[0]!.content;
+    order.push(sys.includes("planner") ? "planner" : sys.includes("verifier") ? "verifier" : "hunter");
+    if (sys.includes("planner")) return toolResult("report_hypotheses", { hypotheses: [] });
+    if (sys.includes("verifier")) return toolResult("report_verdict", { keep: true, confidence: 0.9, severity: "high", cited_line: 2, evidence: "`if rate:` is evaluated" });
+    return toolResult("report_findings", { findings: [] });
+  }]);
+  const router = new ModelRouter(policy, { providers: [mock], budget: new MemoryBudgetLedger({ prUsd: 10, tenantMonthlyUsd: 10 }), sleep: async () => {} });
+  let scanned: Record<string, string> = {};
+  const out = await runReview({ executor: async () => ({ status: "completed", drafts: [], summary: "s", usage: { inputTokens: 0, outputTokens: 0, costUsd: 0, latencyMs: 0 } }),
+    producer: createProducer(memoryTransport()), indexer: { ensureIndexed: async () => ix }, router, config: TenantConfig.parse({ learning: false, confidenceThreshold: 0 }),
+    semgrep: async (f) => { scanned = f; order.push("semgrep"); return sast; } }, { tenantId: "t", reviewId: "r", repositoryId: "repo", diff: DIFF, headSha: C });
+  expect(Object.keys(scanned)).toEqual(["src/rate.py"]);
+  expect(order[0]).toBe("semgrep");
+  expect(order).toContain("verifier");
+  expect(out.findings.map((f) => f.title)).toEqual(["eval of user input"]);
 });
