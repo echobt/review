@@ -1,0 +1,27 @@
+{
+  "name": "@review/queue",
+  "version": "0.1.0",
+  "description": "Typed, zod-validated job queues and events on BullMQ (Valkey/Redis) with an in-memory transport for tests.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@review/core": "workspace:*",
+    "bullmq": "^5.58.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "@types/node": "^24.0.0",
+    "vitest": "^5.0.3"
+  }
+}

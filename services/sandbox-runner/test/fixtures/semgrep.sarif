@@ -1,0 +1,71 @@
+{
+  "$schema": "https://docs.oasis-open.org/sarif/sarif/v2.1.0/os/schemas/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "invocations": [{ "executionSuccessful": true, "toolExecutionNotifications": [] }],
+      "tool": {
+        "driver": {
+          "name": "Semgrep OSS",
+          "semanticVersion": "1.95.0",
+          "rules": [
+            {
+              "id": "javascript.express.security.injection.tainted-sql-string.tainted-sql-string",
+              "name": "javascript.express.security.injection.tainted-sql-string.tainted-sql-string",
+              "shortDescription": { "text": "Semgrep Finding: javascript.express.security.injection.tainted-sql-string.tainted-sql-string" },
+              "fullDescription": { "text": "Detected user input used to manually construct a SQL string." },
+              "defaultConfiguration": { "level": "error" },
+              "helpUri": "https://semgrep.dev/r/javascript.express.security.injection.tainted-sql-string.tainted-sql-string",
+              "properties": {
+                "precision": "very-high",
+                "tags": ["CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')", "HIGH CONFIDENCE", "OWASP-A03:2021 - Injection", "security"]
+              }
+            },
+            {
+              "id": "javascript.lang.security.audit.path-traversal.path-join-resolve-traversal",
+              "name": "javascript.lang.security.audit.path-traversal.path-join-resolve-traversal",
+              "shortDescription": { "text": "Semgrep Finding: path-join-resolve-traversal" },
+              "fullDescription": { "text": "Possible path traversal via path.join with user input." },
+              "defaultConfiguration": { "level": "warning" },
+              "properties": {
+                "precision": "very-high",
+                "tags": ["CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')", "LOW CONFIDENCE", "security"]
+              }
+            },
+            {
+              "id": "javascript.lang.best-practice.leftover_debugging.javascript-debugger",
+              "name": "javascript.lang.best-practice.leftover_debugging.javascript-debugger",
+              "shortDescription": { "text": "Semgrep Finding: javascript-debugger" },
+              "fullDescription": { "text": "Found a debugger statement." },
+              "defaultConfiguration": { "level": "note" },
+              "properties": { "precision": "very-high", "tags": ["best-practice"] }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "javascript.express.security.injection.tainted-sql-string.tainted-sql-string",
+          "message": { "text": "Detected user input used to manually construct a SQL string. This is usually bad practice because manual construction could accidentally result in a SQL injection." },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "src/routes/users.js", "uriBaseId": "%SRCROOT%" }, "region": { "startLine": 14, "startColumn": 18, "endLine": 14, "endColumn": 71, "snippet": { "text": "requires login" } } } }],
+          "fingerprints": { "matchBasedId/v1": "a1b2c3" },
+          "properties": {}
+        },
+        {
+          "ruleId": "javascript.lang.security.audit.path-traversal.path-join-resolve-traversal",
+          "message": { "text": "Detected possible user input going into a `path.join` or `path.resolve` function." },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "src/files.js", "uriBaseId": "%SRCROOT%" }, "region": { "startLine": 7, "startColumn": 10, "endLine": 9, "endColumn": 3 } } }],
+          "fingerprints": { "matchBasedId/v1": "d4e5f6" },
+          "properties": {}
+        },
+        {
+          "ruleId": "javascript.lang.best-practice.leftover_debugging.javascript-debugger",
+          "message": { "text": "found debugger call; please remove this if it is not intended." },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "src/app.js", "uriBaseId": "%SRCROOT%" }, "region": { "startLine": 3, "startColumn": 1, "endLine": 3, "endColumn": 10 } } }],
+          "fingerprints": { "matchBasedId/v1": "g7h8i9" },
+          "properties": {}
+        }
+      ]
+    }
+  ]
+}
