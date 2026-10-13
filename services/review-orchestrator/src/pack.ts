@@ -2,6 +2,7 @@ import { matchesGlob } from "node:path";
 import { gitRepoSource, isTestPath, StandingIndex, type CodeIndex, type GrepHit, type SearchHit, type SymbolDef } from "@review/indexer-worker";
 import type { DiffFile } from "./plan.ts";
 import { languageOf, type ReviewLanguage } from "./languages.ts";
+import { createLimiter } from "@review/models";
 import { assertRepoRef, RepoCache } from "./repo-cache.ts";
 
 /** GREPTILE-GAP §3.2: the orchestrator asks the indexer for a commit-pinned index before building the pack. */
@@ -294,14 +295,18 @@ export async function buildContextPack(ix: CodeIndex, files: DiffFile[], opts: P
   const defsP = timed("definitions", ix.definitionsMany(external, { limit: 2, preferPaths: changed, ...g })
     .then((defs) => [...defs].filter(([, d]) => d.length).map(([name, d]) => ({ name, defs: d }))));
   // (c) changed classes -> bases + abstract members (two levels up)
+  // Classes resolve concurrently (bounded): sequential resolution took 48 s on a 28-class Sentry PR.
   const classesP = timed("classes", (async () => {
-    const classes: ClassNote[] = [];
+    const limit = createLimiter(8);
+    const work: Promise<ClassNote>[] = [];
     for (const f of code) for (const e of parsed.get(f.path)?.entities ?? []) {
-      if (e.kind !== "class" || !e.bases?.length || !overlaps(e.startLine, e.endLine, lineSet(f))) continue;
+      const ownBases = e.bases;
+      if (e.kind !== "class" || !ownBases?.length || !overlaps(e.startLine, e.endLine, lineSet(f))) continue;
+      work.push(limit(async () => {
       const implemented = (parsed.get(f.path)?.entities ?? []).filter((m) => m.kind === "method" && m.startLine > e.startLine && m.endLine <= e.endLine).map((m) => m.name);
       const bases: ClassNote["bases"] = [];
       const abstract = new Set<string>();
-      let frontier = e.bases;
+      let frontier = ownBases;
       for (let depth = 0; depth < 2 && frontier.length; depth++) {
         const found = await ix.definitionsMany(frontier, { limit: 1, preferPaths: changed, ...g });
         const next: string[] = [];
@@ -314,9 +319,10 @@ export async function buildContextPack(ix: CodeIndex, files: DiffFile[], opts: P
         }
         frontier = next;
       }
-      classes.push({ name: e.name, path: f.path, line: e.startLine, bases, implemented, missingAbstract: [...abstract].filter((x) => !implemented.includes(x)).sort() });
+      return { name: e.name, path: f.path, line: e.startLine, bases, implemented, missingAbstract: [...abstract].filter((x) => !implemented.includes(x)).sort() };
+      }));
     }
-    return classes;
+    return Promise.all(work);
   })());
   // (d) callers + tests for changed functions
   const fns: { name: string; path: string; line: number }[] = [];

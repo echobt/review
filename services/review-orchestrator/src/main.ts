@@ -30,7 +30,10 @@ await runWorker("review-orchestrator", "review.requested", ({ cfg, transport }) 
   const indexer = repos ? gitMirrorIndexer(repos) : undefined;
   const driver = mirrors && process.env.REVIEW_EXECUTION === "1" ? selectDriver(process.env) : undefined;
   const sastDriver = mirrors && process.env.REVIEW_SEMGREP === "1" ? driver ?? selectDriver(process.env) : undefined;
-  const semgrep = sastDriver ? (files: Record<string, string>) => runSemgrep(sastDriver, { rules: process.env.SEMGREP_RULES ?? "p/default", files }) : undefined;
+  // The sandbox has no network, so registry rulesets (p/...) cannot be fetched: require rules baked into the image (SEMGREP_RULES=/path).
+  const rules = process.env.SEMGREP_RULES;
+  if (sastDriver && !rules?.startsWith("/")) throw new Error("REVIEW_SEMGREP=1 requires SEMGREP_RULES to be an absolute path to rules inside the semgrep image (the sandbox has no network)");
+  const semgrep = sastDriver && rules ? (files: Record<string, string>) => runSemgrep(sastDriver, { rules, files }) : undefined;
   const execution = driver && repos ? async (repo: string, sha: string) => { const wt = await repos.worktree(repo, sha); return { ...sandboxExecutor(driver, wt.dir), release: wt.release }; } : undefined;
   return async (msg) => {
     await handle({ store, producer, executor: (req) => runAgent({ router, ...(db ? { db } : {}) }, req), ...(db ? { db } : {}), ...(github ? { github } : {}),
