@@ -2,7 +2,7 @@
 
 As of 2026-10-12, branch `boat/1da9053f5295` (GREPTILE-GAP capabilities 1-7 added on top of `boat/c086bbfcb55e`). **Implemented** means the code is present and exercised by passing tests, and where noted by a live run against the docker compose stack. **Stub / boundary** means the interface and payloads exist but no production backend is wired or proven. Evidence for every number below is in the job directory's `build.json` and `logs/`.
 
-Checks: `pnpm -r build` (`tsc --noEmit` per package, TypeScript 5.9.3) exits 0. `pnpm -r test` (Vitest) exits 0 with 191 tests across 18 packages (181 before the latency work) (the 26 RLS tests that need `RLS_DATABASE_URL` are skipped without it). That run includes the per-table RLS suite against Postgres 16 (`RLS_DATABASE_URL`). A clean install, build and test takes about 45 s on the build host.
+Checks: `pnpm -r build` (`tsc --noEmit` per package, TypeScript 5.9.3) exits 0. `pnpm -r test` (Vitest) exits 0 with 204 tests across 18 packages (181 before the latency work) (the 26 RLS tests that need `RLS_DATABASE_URL` are skipped without it). That run includes the per-table RLS suite against Postgres 16 (`RLS_DATABASE_URL`). A clean install, build and test takes about 45 s on the build host.
 
 ## Shared packages
 
@@ -48,34 +48,37 @@ All six boot against the compose stack (Postgres 16 + pgvector, Valkey, OTel col
 |---|---|---|---|---|
 | 1 | Standing index: one blob-SHA-keyed cache per repo shared by all commits and PRs; `lookup`/`head`/`update`/`invalidate`/`warm`; Postgres `branch_heads` (RLS, migration 004), `readyIndexForCommit`/`setBranchHead`/`invalidateBranchHead`; push webhook enqueues `index.requested{branch}`; an already-indexed commit is never rebuilt | `indexer-worker/src/standing.ts`, `indexer.ts`, `db/src/store.ts`, `api-gateway/src/app.ts` | `standing.test.ts`, `indexer.test.ts`, `phase2.test.ts`, `rls.test.ts` | Review path serves the in-process standing index; a `PgCodeIndex` (SQL-backed tools) and content-addressed facts (no row copy on push) are not built |
 | 2 | Parallelism: `createLimiter`; free hunts start next to the planner; one tier-capped pool (fast 8 / standard 16 / deep 24) for hunters + verifiers; verify streams per candidate (no barrier); tool calls of a round run concurrently; `finding` events stream partial results | `models/src/limit.ts`, `review-orchestrator/src/review.ts` | `limit.test.ts`, `latency.test.ts` | Check run is not posted `in_progress` incrementally; per-provider semaphore in `ModelRouter` not added |
-| 3 | Prompt caching: one fence per review, shared cache-marked prefix (system + pack + diff) for every hunter/verifier, `cache_control` blocks + `session_id` (OpenRouter default on, gateways opt-in via `GATEWAY_PROMPT_CACHE=1`), cached tokens recorded; verifier grounding pack rendered once per review (was 200k tokens per candidate); embeddings stay cached by content hash in `embedding_cache` | `models/src/provider.ts`, `env.ts`, `review.ts` | `latency.test.ts` (prefix identity, wire format, cached-token parsing) | Savings not measured live: the bench gateway was run without cache_control (opt-in off), so `cachedTok` = 0 |
-| 4 | Cheap path first: E0/E1 start at t=0 in parallel with indexing/LLM; LLM candidates at a location an execution check already failed skip the frontier verifier; pack-level missing imports are escalated as verifier candidates; `reviewDepth: "auto"` | `orchestrator.ts`, `tier.ts` | `latency.test.ts`, `pipeline.test.ts` | Semgrep is not wired into the review path; auto thresholds are uncalibrated |
+| 3 | Prompt caching: one fence per review, shared cache-marked prefix (system + pack + diff) for every hunter/verifier, `cache_control` blocks + `session_id` (OpenRouter default on, gateways opt-in via `GATEWAY_PROMPT_CACHE=1`), cached tokens recorded; verifier grounding pack rendered once per review (was 200k tokens per candidate); embeddings stay cached by content hash in `embedding_cache` | `models/src/provider.ts`, `env.ts`, `review.ts` | `latency.test.ts` (prefix identity, wire format, cached-token parsing) | Measured live (DeepSeek run below): 93% of input tokens cached, input cost -84% |
+| 4 | Cheap path first: E0/E1 start at t=0 in parallel with indexing/LLM; LLM candidates at a location an execution check already failed skip the frontier verifier; pack-level missing imports are escalated as verifier candidates; `reviewDepth: "auto"` | `orchestrator.ts`, `tier.ts` | `latency.test.ts`, `pipeline.test.ts` | Semgrep is wired (`REVIEW_SEMGREP=1`, `SEMGREP_RULES`=absolute path to rules baked into the image, since the sandbox has no network) but not run live here (no semgrep image); auto thresholds are uncalibrated |
 | 5 | Repo access: `RepoCache` = one bare partial mirror per repo (`--filter=blob:limit=1m`, never shallow), single-flight incremental fetch per commit (lazy fetch disabled for the presence check), worktree per review removed in `finally` | `review-orchestrator/src/repo-cache.ts`, `main.ts`, `scripts/bench/run.ts` | `latency.test.ts` (real git) | File reads come from the mirror via the in-process index, not object-store blobs |
 | 6 | Instrumentation: `phase_start/phase_end`, `llm` (role, model, latency, tokens, cached), `tool` (ms), `heap` every 10 s; `--warm`; report p50/p95/max, per-phase p50/p95, LLM calls/PR, cache hit ratio, peak heap, SLO (p50 <= 150 s, p95 <= 300 s) verdict | `scripts/bench/run.ts`, `report.ts` | `bench.test.ts` | OTel spans per phase not added (events only) |
 
-### Live Sentry 10-case run (2026-10-12, `bench-runs/latency-1` in the job dir)
+### Live Sentry 10-case runs
 
-Command: `node --max-old-space-size=4096 scripts/bench/run.ts --repo sentry --mirrors <mirrors> --out <run> --concurrency 1 --warm --depth standard`, then `judge.ts` (LLM judge `cx/gpt-6-sol` x3) and `report.ts`.
-Models: an OpenAI-compatible coding gateway (no OpenRouter key on this host). DeepSeek and GLM returned 429, so tiers were small `cx/gpt-5.6-sol`, medium `cx/gpt-5.6-terra`, large `cx/gpt-6-sol`, with `MODEL_TIMEOUT_MS=600000`. That is a different model set from the baseline run, so the comparison is not like-for-like.
+All runs: `node --max-old-space-size=4096 scripts/bench/run.ts --repo sentry --mirrors <mirrors> --out <run> --concurrency 1 --warm --depth standard`, then `judge.ts --run <run>` (LLM judge, 3 votes, same model as the engine) and `report.ts --run <run> --input-usd-per-mtok 0.3`. Models come through an OpenAI-compatible coding gateway (`MODEL_PROVIDER=gateway`; no OpenRouter key on this host).
 
-| Metric | Baseline (multi-agent, before) | This run | Target |
-|---|---|---|---|
-| Catch rate | 4/10 | **3/10** (sentry-02, -07, -10); 6 of 10 cases partial | >= 4/10 |
-| Latency p50 | ~23 min (~1,380 s) | **788 s** | <= 150 s |
-| Latency p95 / max | max ~62 min, sentry-01 OOM at ~78 min | **1,154 s** / 1,154 s | <= 300 s |
-| Median cost / PR | $2.48 | $2.67 (gateway has no prices; budget used tier list prices) | <= $2.48 |
-| LLM calls / PR (median) | not measured | 33 | - |
-| Prompt cache hit ratio | 0 | 0 (cache_control not sent to this gateway) | - |
-| Peak heap | OOM | 3,182 MB, climbing every case (544 MB on case 1) | below worker limit |
+| Metric | Baseline | Run 1: GPT tiers (2026-10-12) | Run 2: DeepSeek, reasoning on | **Run 4: DeepSeek, final** | Target |
+|---|---|---|---|---|---|
+| Catch rate | 4/10 | 3/10 | 1/10 | **4/10** (sentry-02, -07, -08, -10) | >= 4/10 |
+| Latency p50 | ~1,380 s | 788 s | 150 s | **68 s** (report; per-case median 78 s) | <= 150 s |
+| Latency p95 / max | sentry-01 OOM at ~78 min | 1,154 s | 342 s | **239 s** (sentry-05) | <= 300 s |
+| SLO met | - | no | no | **yes** | |
+| Median cost / PR | $2.48 | $2.67 | $0.14 | **$0.10** (total $1.35) | <= $2.48 |
+| Prompt cache hit ratio | 0 | 0 | 0.91 | **0.93** (40.3M of 43.3M input tokens) | - |
+| Input cost saved by caching | - | - | 82% | **84%** ($10.87 at $0.3/MTok) | - |
+| Peak heap | OOM | 3,182 MB | 204 MB | **355 MB** | below worker limit |
+| LLM calls / PR (median) | - | 33 | 57.5 | 94 | - |
 
-Phase p50 / p95 (s): context pack 12 / 102, planner 602 / 656, hunt task 865 / 1,946 (sum over the pool), verify 182 / 384, summary 8 / 18, index lookup 0.
+Run 4 config (`bench-runs/latency-4-deepseek` in the job dir): every tier and the judge = `openrouter/deepseek/deepseek-v4.1-flash:nitro`, `MODEL_REASONING=off`, `GATEWAY_PROMPT_CACHE=1`, `MODEL_TIMEOUT_MS=120000`, prices 0.3/1.2 per MTok. Phase p50 / p95 (s): context pack 5.7 / 42, planner 5.8 / 26, verify 91 / 693 and hunt 622 / 2,183 (both summed over the parallel pool), summary 1.0 / 3.4, index lookup 0.
 
-**SLO not met.** The parallelised steps take seconds; the critical path is single gateway calls that stall for minutes. The planner hit the 600 s per-call timeout on 6 of 10 cases, so those cases ran with no hypotheses (free hunt only). That probably explains the recall loss. Hunter calls stalled for 500-700 s on most cases. The cleanest case (sentry-08) took 218 s, and its single planner call took 135 s of that.
+What moved the numbers:
+- **Per-attempt deadline (90 s) and role output caps** stopped single calls from stalling a review for minutes (run 1).
+- **Reasoning off (`MODEL_REASONING=off`).** With reasoning on, DeepSeek spends the whole output budget on hidden reasoning and ends with `finish_reason=length` and no tool call: 0 of 8 hunter and verifier calls were valid in a replay of sentry-04. That emptied 6 of 10 cases in run 2. With reasoning off, 12 of 12 replayed calls were valid.
+- **Grep memoized per commit and concurrent git greps capped.** One Sentry PR made 87 definition lookups for 23 distinct symbols, up to 30 at once on 4 cores; this took sentry-01 from 278 s to 93 s.
+- **Byte-bounded blob cache** keeps the heap flat across cases.
+- **Planner fallback hypotheses** (missing imports, unimplemented abstract members, changed callers, null checks) run whenever the planner call fails.
 
-Open issues from the run (not fixed; they change engine behaviour):
-- No per-call deadline below 600 s, no planner output cap (one planner call produced 14,264 output tokens).
-- `git grep` output above 64 MB fails the tool call (sentry-05) instead of being truncated; this bug predates this work.
-- Peak heap grows across cases in one process (standing-index blob/parse cache bounded by entry count, not bytes); bound by bytes before production.
+Caveats: one run per configuration (no 3-run stability yet); the baseline used other models, so 4/10 versus 4/10 is parity on catch rate, not a like-for-like model comparison. sentry-05 finished partial (budget/deadline) and is the p95 case.
 
 ## SDKs
 
