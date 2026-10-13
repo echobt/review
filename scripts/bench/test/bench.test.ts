@@ -54,7 +54,7 @@ test("latency report: nearest-rank p50/p95, per-phase breakdown, LLM calls, cach
     { event: "heap", heapUsed: 512 * 2 ** 20 },
   ];
   const fast = latencySummary([{ id: "a", latencyMs: 100_000, events: ev(1000, 2000) }, { id: "b", latencyMs: 140_000, events: ev(3000, 4000) }]);
-  expect(fast).toMatchObject({ p50S: 100, p95S: 140, slo: { met: true }, llmCallsPerPr: 2, cacheHitRatio: 0.4, peakHeapMb: 512,
+  expect(fast).toMatchObject({ p50S: 100, p95S: 140, slo: { met: true }, llmCallsPerPr: 2, cacheHitRatio: 0.4, peakHeapMb: 512, cachedTokens: 1600, inputTokens: 4000,
     phases: { plan: { p50S: 1, p95S: 3 }, hunt: { p50S: 4, p95S: 8 } } });
   expect(latencySummary([{ id: "a", latencyMs: 1_380_000, events: [] }]).slo.met).toBe(false);
   expect(latencySummary([]).slo.met).toBe(false);

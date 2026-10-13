@@ -32,7 +32,9 @@ export function latencySummary(perCase: { id: string; latencyMs: number; events:
   return {
     p50S: p50, p95S: p95, maxS: Math.max(0, ...lat), slo: { ...SLO, met: rows.length > 0 && p50 <= SLO.p50S && p95 <= SLO.p95S },
     phases: Object.fromEntries(phaseNames.map((p) => { const v = rows.map((r) => (r.phases[p] ?? 0) / 1000); return [p, { p50S: percentile(v, 50), p95S: percentile(v, 95) }]; })),
-    llmCallsPerPr: median(rows.map((r) => r.llmCalls)), cacheHitRatio: median(rows.map((r) => r.cacheHitRatio)), peakHeapMb: Math.max(0, ...rows.map((r) => r.peakHeapMb)),
+    llmCallsPerPr: median(rows.map((r) => r.llmCalls)), cacheHitRatio: median(rows.map((r) => r.cacheHitRatio)),
+    cachedTokens: perCase.reduce((s, c) => s + c.events.reduce((x, e) => x + (e.event === "llm" ? e.cachedTok ?? 0 : 0), 0), 0),
+    inputTokens: perCase.reduce((s, c) => s + c.events.reduce((x, e) => x + (e.event === "llm" ? e.inTok ?? 0 : 0), 0), 0), peakHeapMb: Math.max(0, ...rows.map((r) => r.peakHeapMb)),
     cases: rows.map(({ id, latencyS, llmCalls, cacheHitRatio, peakHeapMb }) => ({ id, latencyS, llmCalls, cacheHitRatio, peakHeapMb })),
   };
 }
@@ -63,7 +65,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const j = JSON.parse(readFileSync(`${run}/judged.json`, "utf8")) as { judge: string; judgeCostUsd: number; results: J[] };
   const results = j.results.map((r) => ({ ...r, partial: r.partial ?? (existsSync(`${run}/${r.caseId}.json`) && !!JSON.parse(readFileSync(`${run}/${r.caseId}.json`, "utf8")).partial) }));
   const events = (id: string): Ev[] => existsSync(`${run}/${id}.events.jsonl`) ? readFileSync(`${run}/${id}.events.jsonl`, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as Ev) : [];
-  const rep = { judge: j.judge, judgeCostUsd: j.judgeCostUsd, ...summarize(results, ds), latency: latencySummary(results.map((r) => ({ id: r.caseId, latencyMs: r.latencyMs, events: events(r.caseId) }))) };
+  const latency = latencySummary(results.map((r) => ({ id: r.caseId, latencyMs: r.latencyMs, events: events(r.caseId) })));
+  // Input-cost saving from prompt caching: cached tokens billed at READ_MULT x the input price instead of 1x.
+  const inPrice = Number(arg("--input-usd-per-mtok", "0")), READ_MULT = Number(arg("--cache-read-mult", "0.1"));
+  const cacheSavings = { cachedTokens: latency.cachedTokens, inputTokens: latency.inputTokens, hitRatio: latency.inputTokens ? latency.cachedTokens / latency.inputTokens : 0,
+    inputCostSavedUsd: (latency.cachedTokens * (1 - READ_MULT) * inPrice) / 1e6, inputCostSavedFraction: latency.inputTokens ? (latency.cachedTokens * (1 - READ_MULT)) / latency.inputTokens : 0 };
+  const rep = { judge: j.judge, judgeCostUsd: j.judgeCostUsd, ...summarize(results, ds), cacheSavings, latency: latencySummary(results.map((r) => ({ id: r.caseId, latencyMs: r.latencyMs, events: events(r.caseId) }))) };
   const base = arg("--baseline");
   const out = base && existsSync(`${base}/report.json`) ? { ...rep, baseline: JSON.parse(readFileSync(`${base}/report.json`, "utf8")).caught } : rep;
   writeFileSync(`${run}/report.json`, JSON.stringify(out, null, 1));
