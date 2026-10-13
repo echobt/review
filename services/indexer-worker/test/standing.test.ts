@@ -1,5 +1,9 @@
 import { expect, test } from "vitest";
-import { StandingIndex, memoryRepoSource } from "../src/index.ts";
+import { BlobCache, StandingIndex, gitRepoSource, memoryRepoSource } from "../src/index.ts";
+import { execFile } from "node:child_process";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { promisify } from "node:util";
 
 const C1 = "1".repeat(40), C2 = "2".repeat(40), C3 = "3".repeat(40);
 const a = "def helper(x):\n    return x + 1\n";
@@ -46,4 +50,35 @@ test("invalidate drops a branch head or the whole repository; LRU keeps the bran
   expect(s.head("repo", "main")).toBeUndefined();
   s.invalidate("repo");
   expect(s.stats("repo")).toBeUndefined();
+});
+
+test("blob cache is bounded by bytes, evicting least recently used entries", async () => {
+  const c = new BlobCache(1000);
+  const load = (n: number) => async () => "x".repeat(n);
+  await c.text("a", load(200));
+  await c.text("b", load(200));
+  await c.text("a", load(200));
+  await c.text("c", load(200));
+  expect(c.size.bytes).toBeLessThanOrEqual(1000);
+  expect(c.stats.evictions).toBe(1);
+  let reloaded = false;
+  await c.text("b", async () => { reloaded = true; return "y"; });
+  expect(reloaded).toBe(true);
+  await c.parsed("p.py", "s1", async () => ({ parsed: { language: "python", entities: [], edges: [], imports: [] }, sourceChars: 50 }));
+  expect(c.size.bytes).toBeLessThanOrEqual(1000);
+  expect(c.has("p.py", "s1")).toBe(true);
+});
+
+test("git grep is streamed and truncated at maxHits instead of failing on huge output", async () => {
+  const dir = await mkdtemp(`${tmpdir()}/grep-`);
+  const git = promisify(execFile);
+  await git("git", ["init", "-q", dir]);
+  await writeFile(`${dir}/big.py`, Array.from({ length: 50_000 }, (_, i) => `value_${i} = common_name`).join("\n"));
+  await git("git", ["-C", dir, "add", "."]);
+  await git("git", ["-C", dir, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-qm", "1"]);
+  const sha = (await git("git", ["-C", dir, "rev-parse", "HEAD"])).stdout.trim();
+  const hits = await gitRepoSource(dir).grep!(sha, "common_name", { maxHits: 100 });
+  expect(hits).toHaveLength(100);
+  expect(hits[0]).toMatchObject({ path: "big.py", line: 1 });
+  expect(await gitRepoSource(dir).grep!(sha, "no_such_token_here")).toEqual([]);
 });

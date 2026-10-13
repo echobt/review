@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { EnvelopeCipher, LocalKms } from "@review/crypto";
-import { branchHead, invalidateBranchHead, readyIndexForCommit, withTenant } from "@review/db";
+import { branchHead, createIndexRecord, getIndexRecord, invalidateBranchHead, readyIndexForCommit, withTenant } from "@review/db";
 import { createTestDatabase } from "@review/db/testing";
 import { defaultPolicy, HashEmbeddingProvider, MemoryBudgetLedger, ModelRouter, RoutingPolicy, type EmbedRequest } from "@review/models";
 import { tenantKey } from "@review/queue";
@@ -103,6 +103,10 @@ test("push update: branch head lookup, already-indexed commit is not rebuilt, in
   await handle(push(C2, "idx-push-2"));
   expect((await head())!.commitSha).toBe(C2);
   expect(await withTenant(t.db, tenantId, (sql) => invalidateBranchHead(sql, repoId, "main"))).toBe(1);
+  // An API-created pending record for an already-indexed commit resolves to ready (not stuck pending).
+  await withTenant(t.db, tenantId, (sql) => createIndexRecord(sql, tenantId, { id: "idx-api", repositoryId: repoId, commitSha: C2, embedModel: "hash" }));
+  expect(await handle(msg(C2, "incremental", "idx-api"))).toMatchObject({ indexId: "idx-2" });
+  expect(await withTenant(t.db, tenantId, (sql) => getIndexRecord(sql, "idx-api"))).toMatchObject({ status: "ready", baseIndexId: "idx-2", symbolCount: 6 });
   expect(await head()).toBeUndefined();
 });
 

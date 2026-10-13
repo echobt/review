@@ -18,21 +18,21 @@ export class StandingIndex {
   readonly #source: (repositoryId: string) => RepoSource;
   readonly #repos = new Map<string, RepoState>();
   readonly #maxCommits: number;
-  readonly #maxBlobs: number;
+  readonly #maxBytes: number;
   readonly #warmWidth: number;
   /** How many times a commit view was created (a cache hit does not count). Tests assert reuse with it. */
   builds = 0;
 
-  constructor(source: (repositoryId: string) => RepoSource, opts: { maxCommitsPerRepo?: number; maxBlobsPerRepo?: number; warmConcurrency?: number } = {}) {
+  constructor(source: (repositoryId: string) => RepoSource, opts: { maxCommitsPerRepo?: number; maxBytesPerRepo?: number; warmConcurrency?: number } = {}) {
     this.#source = source;
     this.#maxCommits = opts.maxCommitsPerRepo ?? 16;
-    this.#maxBlobs = opts.maxBlobsPerRepo ?? 20_000;
+    this.#maxBytes = opts.maxBytesPerRepo ?? 256 << 20;
     this.#warmWidth = opts.warmConcurrency ?? 4;
   }
 
   #repo(id: string): RepoState {
     let r = this.#repos.get(id);
-    if (!r) { r = { cache: new BlobCache(this.#maxBlobs), commits: new Map(), trees: new Map(), branches: new Map() }; this.#repos.set(id, r); }
+    if (!r) { r = { cache: new BlobCache(this.#maxBytes), commits: new Map(), trees: new Map(), branches: new Map() }; this.#repos.set(id, r); }
     return r;
   }
 

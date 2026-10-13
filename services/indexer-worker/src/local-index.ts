@@ -66,28 +66,42 @@ const cosine = (a: number[], b: number[]) => a.reduce((s, x, i) => s + x * b[i]!
  * Bounded LRU (LATENCY-PLAN H8: unbounded per-commit maps caused the heap OOM).
  */
 export class BlobCache {
-  readonly #max: number;
-  readonly #text = new Map<string, Promise<string | undefined>>();
-  readonly #parsed = new Map<string, Promise<ParsedFile | undefined>>();
-  stats = { textHits: 0, textMisses: 0, parseHits: 0, parseMisses: 0 };
-  constructor(maxEntries = 20_000) { this.#max = maxEntries; }
+  readonly #maxBytes: number;
+  readonly #entries = new Map<string, { v: Promise<unknown>; bytes: number }>();
+  #bytes = 0;
+  stats = { textHits: 0, textMisses: 0, parseHits: 0, parseMisses: 0, evictions: 0 };
+  /** Bounded by estimated bytes (review R4: an entry-count bound let the heap reach 3 GB); least recently used goes first. */
+  constructor(maxBytes = 256 << 20) { this.#maxBytes = maxBytes; }
 
-  #get<V>(m: Map<string, Promise<V>>, key: string, load: () => Promise<V>, hit: "textHits" | "parseHits"): Promise<V> {
-    const p = m.get(key);
-    if (p) { m.delete(key); m.set(key, p); this.stats[hit]++; return p; }
+  #get<V>(key: string, load: () => Promise<{ value: V; bytes: number }>, hit: "textHits" | "parseHits"): Promise<V> {
+    const e = this.#entries.get(key);
+    if (e) { this.#entries.delete(key); this.#entries.set(key, e); this.stats[hit]++; return e.v as Promise<V>; }
     this.stats[hit === "textHits" ? "textMisses" : "parseMisses"]++;
-    const v = load();
-    m.set(key, v);
-    // A failed load must not poison the cache.
-    v.catch(() => { if (m.get(key) === v) m.delete(key); });
-    if (m.size > this.#max) m.delete(m.keys().next().value!);
-    return v;
+    const loaded = load();
+    const entry = { v: loaded.then((r) => r.value), bytes: 0 };
+    this.#entries.set(key, entry);
+    loaded.then((r) => {
+      if (this.#entries.get(key) !== entry) return;
+      entry.bytes = r.bytes; this.#bytes += r.bytes;
+      for (const [k, x] of this.#entries) {
+        if (this.#bytes <= this.#maxBytes) break;
+        if (k === key || !x.bytes) continue;
+        this.#entries.delete(k); this.#bytes -= x.bytes; this.stats.evictions++;
+      }
+    }, () => { if (this.#entries.get(key) === entry) this.#entries.delete(key); });
+    return entry.v;
   }
-  text(blobSha: string, load: () => Promise<string | undefined>) { return this.#get(this.#text, blobSha, load, "textHits"); }
-  parsed(path: string, blobSha: string, load: () => Promise<ParsedFile | undefined>) { return this.#get(this.#parsed, `${path}\0${blobSha}`, load, "parseHits"); }
-  has(path: string, blobSha: string) { return this.#parsed.has(`${path}\0${blobSha}`); }
-  get size() { return { text: this.#text.size, parsed: this.#parsed.size }; }
+  text(blobSha: string, load: () => Promise<string | undefined>) {
+    return this.#get(`t\0${blobSha}`, async () => { const t = await load(); return { value: t, bytes: (t?.length ?? 0) * 2 }; }, "textHits");
+  }
+  /** A parse tree is weighed at PARSE_WEIGHT x its source size: tree-sitter entities, edges and node text dwarf the source. */
+  parsed(path: string, blobSha: string, load: () => Promise<{ parsed: ParsedFile | undefined; sourceChars: number }>) {
+    return this.#get(`p\0${path}\0${blobSha}`, async () => { const r = await load(); return { value: r.parsed, bytes: r.parsed ? r.sourceChars * 2 * PARSE_WEIGHT : 0 }; }, "parseHits");
+  }
+  has(path: string, blobSha: string) { return this.#entries.has(`p\0${path}\0${blobSha}`); }
+  get size() { return { entries: this.#entries.size, bytes: this.#bytes }; }
 }
+const PARSE_WEIGHT = 8;
 
 /**
  * In-process index over a RepoSource at one commit. Lazy: nothing is read until asked; grep narrows candidates and
@@ -101,7 +115,7 @@ export class LocalCodeIndex implements CodeIndex {
   readonly #cache: BlobCache;
 
   constructor(source: RepoSource, commitSha: string, opts: { cache?: BlobCache; files?: Promise<Map<string, string>> } = {}) {
-    this.#src = source; this.commitSha = commitSha; this.#cache = opts.cache ?? new BlobCache(Number.MAX_SAFE_INTEGER);
+    this.#src = source; this.commitSha = commitSha; this.#cache = opts.cache ?? new BlobCache();
     if (opts.files) this.#files = opts.files;
   }
 
@@ -122,7 +136,10 @@ export class LocalCodeIndex implements CodeIndex {
   async parse(path: string) {
     const sha = (await this.#tree()).get(path);
     if (!sha) return undefined;
-    return this.#cache.parsed(path, sha, () => this.readFile(path).then((t) => (t === undefined ? undefined : parseSource(path, t))));
+    return this.#cache.parsed(path, sha, async () => {
+      const t = await this.readFile(path);
+      return { parsed: t === undefined ? undefined : await parseSource(path, t), sourceChars: t?.length ?? 0 };
+    });
   }
 
   async grep(pattern: string, opts: GrepOptions = {}): Promise<GrepHit[]> {
