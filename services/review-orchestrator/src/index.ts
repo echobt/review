@@ -7,3 +7,5 @@ export * from "./pack.ts";
 export * from "./languages.ts";
 export * from "./review.ts";
 export * from "./learning.ts";
+export * from "./repo-cache.ts";
+export * from "./tier.ts";

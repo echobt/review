@@ -159,8 +159,8 @@ export const TenantConfig = z.object({
   maxComments: z.number().int().min(0).max(100).default(15),
   /** Per-PR model spend cap in USD. */
   prBudgetUsd: z.number().positive().default(0.5),
-  /** Review depth (GREPTILE-GAP §4.2): caps planner hypotheses at fast 8 / standard 20 / deep 40. */
-  reviewDepth: z.enum(["fast", "standard", "deep"]).default("standard"),
+  /** Review depth (GREPTILE-GAP §4.2): caps planner hypotheses at fast 8 / standard 20 / deep 40; "auto" picks one per PR from size/risk. */
+  reviewDepth: z.enum(["fast", "standard", "deep", "auto"]).default("standard"),
   /** Learned suppression from dismissed feedback (off in benchmark runs, GREPTILE-GAP §7.2). */
   learning: z.boolean().default(true),
   /** Per-tenant monthly model spend cap in USD. */

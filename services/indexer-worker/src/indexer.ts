@@ -1,9 +1,10 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { createInterface } from "node:readline";
 import { createHash, randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import type { Message } from "@review/core";
 import type { EnvelopeCipher } from "@review/crypto";
-import { createIndexRecord, getIndexRecord, latestReadyIndex, updateIndexRecord, withTenant, EMBEDDING_DIM, type Database, type Sql } from "@review/db";
+import { branchHead, createIndexRecord, getIndexRecord, latestReadyIndex, readyIndexForCommit, setBranchHead, updateIndexRecord, withTenant, EMBEDDING_DIM, type Database, type Sql } from "@review/db";
 import type { ModelRouter } from "@review/models";
 import { tenantKey } from "@review/queue";
 import type { ObjectStore } from "@review/service-common";
@@ -69,16 +70,20 @@ export function gitRepoSource(dir: string): RepoSource {
       if (!SHA.test(commitSha)) throw new Error("invalid commit sha");
       // -e keeps the pattern from being read as an option; exit 1 (no match) is not an error.
       const args = ["-C", dir, "grep", "-n", "-I", "-E", "--full-name", ...(opts.ignoreCase ? ["-i"] : []), "-e", pattern, commitSha, ...(opts.globs?.length ? ["--", ...opts.globs.filter((g) => /^[\w*./-]+$/.test(g))] : [])];
-      const out = await exec("git", args, { maxBuffer: 64 << 20 }).catch((e: { code?: number; stdout?: string }) => {
-        if (e.code === 1) return { stdout: "" };
-        throw e;
-      });
+      const max = opts.maxHits ?? 2000;
       const hits: GrepHit[] = [];
-      for (const l of out.stdout.split("\n")) {
+      // Streamed and stopped at maxHits: a common name on a large repo used to overflow execFile's 64 MB buffer (review R7).
+      const child = spawn("git", args, { stdio: ["ignore", "pipe", "pipe"] });
+      let stderr = "", truncated = false;
+      child.stderr.on("data", (d: Buffer) => { if (stderr.length < 4000) stderr += d.toString(); });
+      const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
+      for await (const l of lines) {
         const m = /^[0-9a-f]+:([^:]+):(\d+):(.*)$/.exec(l);
         if (m) hits.push({ path: m[1]!, line: Number(m[2]), text: m[3]!.slice(0, 400) });
-        if (hits.length >= (opts.maxHits ?? 2000)) break;
+        if (hits.length >= max) { truncated = true; lines.close(); child.kill(); break; }
       }
+      const code = child.exitCode ?? await new Promise<number | null>((r) => child.once("close", r));
+      if (!truncated && code !== 0 && code !== 1) throw new Error(`git grep failed (exit ${code}): ${stderr.slice(0, 200)}`);
       return hits;
     },
     async readBlob(blobSha) {
@@ -95,15 +100,30 @@ const vec = (v: number[]) => `[${v.join(",")}]`;
 export async function indexRepository(deps: IndexerDeps, msg: Message<"index.requested">): Promise<IndexResult> {
   const { tenantId, payload: p } = msg;
   const embedModel = deps.router.policy.embed[0]!.model;
+  // Standing index: a commit that is already indexed is never rebuilt; a push only moves the branch head.
+  const existing = p.mode === "full" ? undefined : await withTenant(deps.db, tenantId, async (sql) => {
+    const r = await readyIndexForCommit(sql, p.repositoryId, p.commitSha);
+    if (r && p.branch) await setBranchHead(sql, tenantId, { repositoryId: p.repositoryId, branch: p.branch, indexId: r.id, commitSha: p.commitSha });
+    // The API created a pending record for this request; resolve it to the existing index's counts so GET never stays pending (review R3).
+    if (r && p.indexId && p.indexId !== r.id && await getIndexRecord(sql, p.indexId)) {
+      await sql.query("UPDATE repo_indexes SET base_index_id = $2 WHERE id = $1", [p.indexId, r.id]);
+      await updateIndexRecord(sql, p.indexId, { status: "ready", languages: r.languages, fileCount: r.fileCount, symbolCount: r.symbolCount, chunkCount: r.chunkCount });
+    }
+    return r;
+  });
+  if (existing) return { indexId: existing.id, status: "ready", files: existing.fileCount, parsed: 0, reused: existing.fileCount, embedded: 0, symbols: existing.symbolCount, chunks: existing.chunkCount };
   const indexId = p.indexId ?? randomUUID();
   const base = await withTenant(deps.db, tenantId, async (sql) => {
-    const b = p.mode === "full" ? undefined : p.baseIndexId ? await getIndexRecord(sql, p.baseIndexId) : await latestReadyIndex(sql, p.repositoryId);
+    const b = p.mode === "full" ? undefined : p.baseIndexId ? await getIndexRecord(sql, p.baseIndexId)
+      : (p.branch ? await branchHead(sql, p.repositoryId, p.branch) : undefined) ?? await latestReadyIndex(sql, p.repositoryId);
     await createIndexRecord(sql, tenantId, { id: indexId, repositoryId: p.repositoryId, commitSha: p.commitSha, embedModel, ...(b ? { baseIndexId: b.id } : {}) });
     await updateIndexRecord(sql, indexId, { status: "building" });
     return b?.status === "ready" ? b : undefined;
   });
   try {
-    return await build(deps, tenantId, indexId, p.commitSha, base?.id, embedModel);
+    const r = await build(deps, tenantId, indexId, p.commitSha, base?.id, embedModel);
+    if (p.branch) await withTenant(deps.db, tenantId, (sql) => setBranchHead(sql, tenantId, { repositoryId: p.repositoryId, branch: p.branch!, indexId, commitSha: p.commitSha }));
+    return r;
   } catch (e) {
     await withTenant(deps.db, tenantId, (sql) => updateIndexRecord(sql, indexId, { status: "failed" }));
     throw e;

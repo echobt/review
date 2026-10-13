@@ -23,6 +23,8 @@ export const messages = {
     mode: z.enum(["full", "incremental"]).default("incremental"),
     baseIndexId: z.string().optional(),
     changedPaths: z.array(z.string()).optional(),
+    /** Push-driven update: on success the branch head points at this index. */
+    branch: z.string().min(1).max(255).optional(),
   }),
   "review.requested": msg({ reviewId: z.string(), repositoryId: z.string(), pullRequest: PullRequestRef.optional(), diffObjectKey: z.string().optional() }),
   "agent.task": msg({

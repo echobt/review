@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { EnvelopeCipher, LocalKms } from "@review/crypto";
-import { withTenant } from "@review/db";
+import { branchHead, createIndexRecord, getIndexRecord, invalidateBranchHead, readyIndexForCommit, withTenant } from "@review/db";
 import { createTestDatabase } from "@review/db/testing";
 import { defaultPolicy, HashEmbeddingProvider, MemoryBudgetLedger, ModelRouter, RoutingPolicy, type EmbedRequest } from "@review/models";
 import { tenantKey } from "@review/queue";
@@ -87,6 +87,27 @@ test("full then incremental index, retrieval, encrypted blobs", async () => {
   expect(blob.includes(Buffer.from("computeInvoiceTotal"))).toBe(false);
   expect((await cipher.decrypt(tenantId, blob, `blob:${blobSha}`)).toString()).toBe(files["src/billing.ts"]);
   expect(store.keys().some((k) => k.includes("node_modules"))).toBe(false);
+});
+
+test("push update: branch head lookup, already-indexed commit is not rebuilt, invalidation", async () => {
+  const handle = makeHandler({ db: t.db, store, cipher, router, source });
+  const push = (commitSha: string, indexId: string) => ({ ...msg(commitSha, "incremental", indexId), payload: { ...msg(commitSha, "incremental", indexId).payload, branch: "main" } });
+  const head = () => withTenant(t.db, tenantId, (sql) => branchHead(sql, repoId, "main"));
+  // C1 is already indexed (idx-1): the push only moves the head, nothing is re-read.
+  source.reads.length = 0;
+  const r1 = await handle(push(C1, "idx-push-1"));
+  expect(r1).toMatchObject({ indexId: "idx-1", parsed: 0 });
+  expect(source.reads).toHaveLength(0);
+  expect((await head())!.id).toBe("idx-1");
+  expect((await withTenant(t.db, tenantId, (sql) => readyIndexForCommit(sql, repoId, C2)))!.id).toBe("idx-2");
+  await handle(push(C2, "idx-push-2"));
+  expect((await head())!.commitSha).toBe(C2);
+  expect(await withTenant(t.db, tenantId, (sql) => invalidateBranchHead(sql, repoId, "main"))).toBe(1);
+  // An API-created pending record for an already-indexed commit resolves to ready (not stuck pending).
+  await withTenant(t.db, tenantId, (sql) => createIndexRecord(sql, tenantId, { id: "idx-api", repositoryId: repoId, commitSha: C2, embedModel: "hash" }));
+  expect(await handle(msg(C2, "incremental", "idx-api"))).toMatchObject({ indexId: "idx-2" });
+  expect(await withTenant(t.db, tenantId, (sql) => getIndexRecord(sql, "idx-api"))).toMatchObject({ status: "ready", baseIndexId: "idx-2", symbolCount: 6 });
+  expect(await head()).toBeUndefined();
 });
 
 test("failed build marks index failed", async () => {

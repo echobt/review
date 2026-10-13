@@ -22,6 +22,8 @@ With `REVIEW_MIRROR_ROOT=<dir of git mirrors named by repository id>` the orches
 (context pack -> planner -> hypothesis hunters with code tools -> grounded verifier; see [GREPTILE-GAP](docs/research/GREPTILE-GAP.md)).
 Tiers come from env: `MODEL_PROVIDER` (e.g. `gateway` with `GATEWAY_BASE_URL` + `GATEWAY_API_KEY[_FILE]`), `MODEL_SMALL`, `MODEL_MEDIUM`, `MODEL_LARGE`
 and optional `MODEL_<TIER>_PRICE="in,out"`. `REVIEW_EXECUTION=1` adds E0-E3 execution checks in the sandbox driver.
+`MODEL_REASONING=off|low|medium|high` sets the provider reasoning field; use `off` for DeepSeek V4.1 Flash, which otherwise spends its output budget on hidden reasoning and returns no tool call.
+`REVIEW_SEMGREP=1` runs semgrep before any LLM call; it requires `SEMGREP_RULES` to be an absolute path to rules inside the semgrep image (the sandbox has no network).
 
 ## Benchmark (greptile-50)
 
@@ -29,8 +31,15 @@ and optional `MODEL_<TIER>_PRICE="in,out"`. `REVIEW_EXECUTION=1` adds E0-E3 exec
 node scripts/bench/extract.ts                                   # refresh dataset from the public forks (GH_TOKEN)
 node scripts/bench/run.ts --repo sentry --mirrors <dir> --out bench-runs/x   # engine under test; model env as above
 node scripts/bench/judge.ts --run bench-runs/x                  # published "caught" rule; LLM judge on MODEL_LARGE
-node scripts/bench/report.ts --run bench-runs/x
+node scripts/bench/report.ts --run bench-runs/x                 # catch rate + latency p50/p95, per-phase, LLM calls, cache hit ratio, SLO verdict
 ```
+
+Latency (see [LATENCY-PLAN](docs/research/LATENCY-PLAN.md)): measure the SLO (p50 <= 150 s, p95 <= 300 s) with `--concurrency 1 --warm`.
+Latest live Sentry run (DeepSeek V4.1 Flash on every tier, reasoning off): 4/10 caught, p50 68 s, p95 239 s, $0.10 per PR median; see [IMPLEMENTATION-STATUS](docs/IMPLEMENTATION-STATUS.md#live-sentry-10-case-runs).
+`report.ts --input-usd-per-mtok <price>` adds the input cost saved by prompt caching.
+`--warm` warms the standing index off the clock, as a push would in production. Engine knobs: `reviewDepth: "auto"` picks fast/standard/deep from PR size and risk.
+Prompt caching is on for OpenRouter (`PROMPT_CACHE=0` turns it off) and opt-in for gateways (`GATEWAY_PROMPT_CACHE=1`).
+`REVIEW_REMOTE_TEMPLATE=https://github.com/{repo}.git` lets the orchestrator create partial mirrors on first use.
 
 ## Quick start
 

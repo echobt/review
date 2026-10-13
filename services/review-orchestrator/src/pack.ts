@@ -1,47 +1,29 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { matchesGlob } from "node:path";
-import { gitRepoSource, isTestPath, LocalCodeIndex, type CodeIndex, type GrepHit, type SearchHit, type SymbolDef } from "@review/indexer-worker";
+import { gitRepoSource, isTestPath, StandingIndex, type CodeIndex, type GrepHit, type SearchHit, type SymbolDef } from "@review/indexer-worker";
 import type { DiffFile } from "./plan.ts";
 import { languageOf, type ReviewLanguage } from "./languages.ts";
+import { createLimiter } from "@review/models";
+import { assertRepoRef, RepoCache } from "./repo-cache.ts";
 
 /** GREPTILE-GAP §3.2: the orchestrator asks the indexer for a commit-pinned index before building the pack. */
 export interface IndexerPort { ensureIndexed(repositoryId: string, headSha: string): Promise<CodeIndex> }
 
-const exec = promisify(execFile);
-const SHA = /^[0-9a-f]{7,64}$/;
-const SAFE_REPO = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)?$/;
-
 /**
- * Local git mirrors under `root/<repositoryId>`: fetches the head commit when missing, then serves a LocalCodeIndex.
- * ponytail: per-process; the pgvector index (indexer-worker) is the multi-tenant path, this one needs no database.
+ * Standing index over cached git mirrors (LATENCY-PLAN §2, §6): RepoCache makes sure repo@sha is present (partial mirror,
+ * incremental fetch, no per-review clone), StandingIndex serves one shared blob-keyed index per repository, so a second
+ * review of the same repository reuses every unchanged file's read and parse.
  */
-export function gitMirrorIndexer(root: string, opts: { fetch?: boolean } = {}): IndexerPort {
-  const cache = new Map<string, CodeIndex>();
+export function gitMirrorIndexer(root: string | RepoCache, opts: { fetch?: boolean; standing?: StandingIndex } = {}): IndexerPort & { standing: StandingIndex; repos: RepoCache } {
+  const repos = typeof root === "string" ? new RepoCache(root) : root;
+  const standing = opts.standing ?? new StandingIndex((id) => gitRepoSource(repos.dir(id)));
   return {
+    standing, repos,
     async ensureIndexed(repositoryId, headSha) {
-      if (!SAFE_REPO.test(repositoryId) || repositoryId.includes("..")) throw new Error("invalid repository id");
-      if (!SHA.test(headSha)) throw new Error("invalid head sha");
-      const key = `${repositoryId}@${headSha}`;
-      const hit = cache.get(key);
-      if (hit) return hit;
-      const dir = `${root}/${repositoryId}`;
-      const has = await exec("git", ["-C", dir, "cat-file", "-e", `${headSha}^{commit}`]).then(() => true, () => false);
-      if (!has && opts.fetch !== false) await exec("git", ["-C", dir, "fetch", "--depth=1", "--no-tags", "origin", headSha], { timeout: 600_000 });
-      const ix = new LocalCodeIndex(gitRepoSource(dir), headSha);
-      cache.set(key, ix);
-      return ix;
+      assertRepoRef(repositoryId, headSha);
+      if (!standing.lookup(repositoryId, headSha) && opts.fetch !== false) await repos.ensureCommit(repositoryId, headSha);
+      return standing.ensureIndexed(repositoryId, headSha);
     },
   };
-}
-
-/** Detached worktree of repo@sha under wsRoot (the sandbox workspace for E0-E3); reused when present. */
-export async function gitWorktree(root: string, repositoryId: string, sha: string, wsRoot: string): Promise<string> {
-  if (!SAFE_REPO.test(repositoryId) || repositoryId.includes("..") || !SHA.test(sha)) throw new Error("invalid repository id or sha");
-  const dir = `${wsRoot}/${repositoryId.replace("/", "__")}-${sha}`;
-  const exists = await exec("git", ["-C", dir, "rev-parse", "HEAD"]).then(() => true, () => false);
-  if (!exists) await exec("git", ["-C", `${root}/${repositoryId}`, "worktree", "add", "--detach", "--force", dir, sha], { timeout: 600_000 });
-  return dir;
 }
 
 export type ImportStatus = "exists" | "missing" | "external";
@@ -313,14 +295,18 @@ export async function buildContextPack(ix: CodeIndex, files: DiffFile[], opts: P
   const defsP = timed("definitions", ix.definitionsMany(external, { limit: 2, preferPaths: changed, ...g })
     .then((defs) => [...defs].filter(([, d]) => d.length).map(([name, d]) => ({ name, defs: d }))));
   // (c) changed classes -> bases + abstract members (two levels up)
+  // Classes resolve concurrently (bounded): sequential resolution took 48 s on a 28-class Sentry PR.
   const classesP = timed("classes", (async () => {
-    const classes: ClassNote[] = [];
+    const limit = createLimiter(8);
+    const work: Promise<ClassNote>[] = [];
     for (const f of code) for (const e of parsed.get(f.path)?.entities ?? []) {
-      if (e.kind !== "class" || !e.bases?.length || !overlaps(e.startLine, e.endLine, lineSet(f))) continue;
+      const ownBases = e.bases;
+      if (e.kind !== "class" || !ownBases?.length || !overlaps(e.startLine, e.endLine, lineSet(f))) continue;
+      work.push(limit(async () => {
       const implemented = (parsed.get(f.path)?.entities ?? []).filter((m) => m.kind === "method" && m.startLine > e.startLine && m.endLine <= e.endLine).map((m) => m.name);
       const bases: ClassNote["bases"] = [];
       const abstract = new Set<string>();
-      let frontier = e.bases;
+      let frontier = ownBases;
       for (let depth = 0; depth < 2 && frontier.length; depth++) {
         const found = await ix.definitionsMany(frontier, { limit: 1, preferPaths: changed, ...g });
         const next: string[] = [];
@@ -333,9 +319,10 @@ export async function buildContextPack(ix: CodeIndex, files: DiffFile[], opts: P
         }
         frontier = next;
       }
-      classes.push({ name: e.name, path: f.path, line: e.startLine, bases, implemented, missingAbstract: [...abstract].filter((x) => !implemented.includes(x)).sort() });
+      return { name: e.name, path: f.path, line: e.startLine, bases, implemented, missingAbstract: [...abstract].filter((x) => !implemented.includes(x)).sort() };
+      }));
     }
-    return classes;
+    return Promise.all(work);
   })());
   // (d) callers + tests for changed functions
   const fns: { name: string; path: string; line: number }[] = [];

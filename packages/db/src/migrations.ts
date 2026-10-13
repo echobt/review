@@ -18,6 +18,7 @@ export const TENANT_TABLES: readonly RlsTable[] = [
   { table: "symbol_edges" },
   { table: "chunks" },
   { table: "embedding_cache" },
+  { table: "branch_heads" },
   { table: "pull_requests" },
   { table: "reviews" },
   { table: "agent_tasks" },
@@ -108,7 +109,8 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${APP_ROLE};
   },
   {
     id: "002_rls",
-    sql: TENANT_TABLES.map(rlsPolicySql).join("\n"),
+    // Tables created by later migrations get their policy there.
+    sql: TENANT_TABLES.filter((t) => t.table !== "branch_heads").map(rlsPolicySql).join("\n"),
   },
   {
     id: "003_definer_lookups",
@@ -123,6 +125,17 @@ REVOKE ALL ON FUNCTION auth_api_key(bytea) FROM PUBLIC;
 REVOKE ALL ON FUNCTION resolve_installation(text, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION auth_api_key(bytea) TO ${APP_ROLE};
 GRANT EXECUTE ON FUNCTION resolve_installation(text, text) TO ${APP_ROLE};
+`,
+  },
+  {
+    id: "004_branch_heads",
+    // Standing index (LATENCY-PLAN §2.2): per (repo, branch) pointer to the latest ready index, moved on push.
+    sql: `
+CREATE TABLE branch_heads (${T}, repository_id text NOT NULL REFERENCES repositories(id) ON DELETE CASCADE, branch text NOT NULL,
+  index_id text NOT NULL REFERENCES repo_indexes(id) ON DELETE CASCADE, commit_sha text NOT NULL, updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, repository_id, branch));
+CREATE INDEX repo_indexes_commit ON repo_indexes (tenant_id, repository_id, commit_sha);
+${rlsPolicySql({ table: "branch_heads" })}
 `,
   },
 ];

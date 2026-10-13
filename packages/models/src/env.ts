@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { OpenAICompatibleProvider, type LLMProvider } from "./provider.ts";
+import { OpenAICompatibleProvider, type LLMProvider, type OpenAICompatibleOptions } from "./provider.ts";
 
 const secret = (name: string, env: NodeJS.ProcessEnv) => () => {
   if (env[name]) return env[name];
@@ -10,11 +10,16 @@ const secret = (name: string, env: NodeJS.ProcessEnv) => () => {
 /** Providers configured from env. Keys are read lazily at call time; absent keys make the provider fail closed (401, non-retryable). */
 export function providersFromEnv(env: NodeJS.ProcessEnv = process.env, f?: typeof fetch): LLMProvider[] {
   const timeout = Number(env.MODEL_TIMEOUT_MS) || undefined;
+  // Prompt caching: on for OpenRouter unless PROMPT_CACHE=0; opt-in for gateways (GATEWAY_PROMPT_CACHE=1) that pass cache_control through.
+  const cacheOff = env.PROMPT_CACHE === "0";
+  // MODEL_REASONING=off|low|medium|high maps to the OpenRouter reasoning field (unset: provider default).
+  const r = env.MODEL_REASONING;
+  const reasoning: OpenAICompatibleOptions["reasoning"] = r === "off" ? { enabled: false } : r === "low" || r === "medium" || r === "high" ? { effort: r } : undefined;
   const out: LLMProvider[] = [
-    new OpenAICompatibleProvider({ name: "openrouter", baseUrl: env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1", apiKey: secret("OPENROUTER_API_KEY", env), ...(timeout ? { timeoutMs: timeout } : {}), ...(f ? { fetch: f } : {}) }),
+    new OpenAICompatibleProvider({ name: "openrouter", baseUrl: env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1", apiKey: secret("OPENROUTER_API_KEY", env), promptCache: !cacheOff, ...(reasoning ? { reasoning } : {}), ...(timeout ? { timeoutMs: timeout } : {}), ...(f ? { fetch: f } : {}) }),
   ];
   // Any OpenAI-compatible gateway (e.g. an internal LLM gateway); select it with MODEL_PROVIDER=gateway.
-  if (env.GATEWAY_BASE_URL) out.push(new OpenAICompatibleProvider({ name: "gateway", baseUrl: env.GATEWAY_BASE_URL, apiKey: secret("GATEWAY_API_KEY", env), ...(timeout ? { timeoutMs: timeout } : {}), ...(f ? { fetch: f } : {}) }));
+  if (env.GATEWAY_BASE_URL) out.push(new OpenAICompatibleProvider({ name: "gateway", baseUrl: env.GATEWAY_BASE_URL, apiKey: secret("GATEWAY_API_KEY", env), promptCache: !cacheOff && env.GATEWAY_PROMPT_CACHE === "1", ...(reasoning ? { reasoning } : {}), ...(timeout ? { timeoutMs: timeout } : {}), ...(f ? { fetch: f } : {}) }));
   if (env.VLLM_BASE_URL) out.push(new OpenAICompatibleProvider({ name: "vllm", baseUrl: env.VLLM_BASE_URL, apiKey: () => secret("VLLM_API_KEY", env)() ?? "none", ...(f ? { fetch: f } : {}) }));
   if (env.AZURE_OPENAI_BASE_URL) out.push(new OpenAICompatibleProvider({ name: "azure-openai", baseUrl: env.AZURE_OPENAI_BASE_URL, apiKey: secret("AZURE_OPENAI_API_KEY", env), ...(f ? { fetch: f } : {}) }));
   return out;

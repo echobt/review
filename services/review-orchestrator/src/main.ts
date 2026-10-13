@@ -3,10 +3,11 @@ import { pgDatabase } from "@review/db";
 import { createProducer } from "@review/queue";
 import { memoryObjectStore, readSecret, runWorker, s3ObjectStore } from "@review/service-common";
 import { runAgent } from "@review/agent-runner";
-import { sandboxExecutor, selectDriver } from "@review/sandbox-runner";
+import { runSemgrep, sandboxExecutor, selectDriver } from "@review/sandbox-runner";
 import { OctokitlessGitHubClient } from "./github.ts";
 import { handle } from "./handler.ts";
-import { gitMirrorIndexer, gitWorktree } from "./pack.ts";
+import { gitMirrorIndexer } from "./pack.ts";
+import { RepoCache } from "./repo-cache.ts";
 
 await runWorker("review-orchestrator", "review.requested", ({ cfg, transport }) => {
   const memory = cfg.RUNTIME_MODE === "memory";
@@ -23,11 +24,19 @@ await runWorker("review-orchestrator", "review.requested", ({ cfg, transport }) 
   const github = token ? new OctokitlessGitHubClient(async () => token) : undefined;
   const producer = createProducer(transport);
   // Multi-agent engine (GREPTILE-GAP): on when REVIEW_MIRROR_ROOT holds git mirrors (<root>/<repositoryId>); E0-E3 when REVIEW_EXECUTION=1.
-  const indexer = mirrors ? gitMirrorIndexer(mirrors) : undefined;
+  // One partial mirror per repository (cloned once from REVIEW_REMOTE_TEMPLATE, e.g. https://github.com/{repo}.git), standing index per repo.
+  const remote = process.env.REVIEW_REMOTE_TEMPLATE;
+  const repos = mirrors ? new RepoCache(mirrors, { workspaceRoot: process.env.SANDBOX_WORKSPACE_ROOT ?? "/tmp/review-ws", ...(remote ? { remote: (id: string) => remote.replace("{repo}", id) } : {}) }) : undefined;
+  const indexer = repos ? gitMirrorIndexer(repos) : undefined;
   const driver = mirrors && process.env.REVIEW_EXECUTION === "1" ? selectDriver(process.env) : undefined;
-  const execution = driver && mirrors ? async (repo: string, sha: string) => sandboxExecutor(driver, await gitWorktree(mirrors, repo, sha, process.env.SANDBOX_WORKSPACE_ROOT ?? "/tmp/review-ws")) : undefined;
+  const sastDriver = mirrors && process.env.REVIEW_SEMGREP === "1" ? driver ?? selectDriver(process.env) : undefined;
+  // The sandbox has no network, so registry rulesets (p/...) cannot be fetched: require rules baked into the image (SEMGREP_RULES=/path).
+  const rules = process.env.SEMGREP_RULES;
+  if (sastDriver && !rules?.startsWith("/")) throw new Error("REVIEW_SEMGREP=1 requires SEMGREP_RULES to be an absolute path to rules inside the semgrep image (the sandbox has no network)");
+  const semgrep = sastDriver && rules ? (files: Record<string, string>) => runSemgrep(sastDriver, { rules, files }) : undefined;
+  const execution = driver && repos ? async (repo: string, sha: string) => { const wt = await repos.worktree(repo, sha); return { ...sandboxExecutor(driver, wt.dir), release: wt.release }; } : undefined;
   return async (msg) => {
     await handle({ store, producer, executor: (req) => runAgent({ router, ...(db ? { db } : {}) }, req), ...(db ? { db } : {}), ...(github ? { github } : {}),
-      ...(indexer ? { indexer, router } : {}), ...(execution ? { execution } : {}) }, msg);
+      ...(indexer ? { indexer, router } : {}), ...(execution ? { execution } : {}), ...(semgrep ? { semgrep } : {}) }, msg);
   };
 });

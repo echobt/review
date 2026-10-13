@@ -77,6 +77,9 @@ export interface CallOptions {
   tools?: ToolSpec[];
   toolChoice?: string;
   jsonMode?: boolean;
+  sessionId?: string;
+  /** Per-attempt deadline: a hung call is aborted and retried / falls through to the next target instead of stalling the review. */
+  timeoutMs?: number;
   signal?: AbortSignal;
 }
 
@@ -139,10 +142,12 @@ export class ModelRouter {
         }
         for (let i = 0; i < this.policy.retry.attempts; i++) {
           const t0 = this.#now();
+          const deadline = opts.timeoutMs ? AbortSignal.timeout(opts.timeoutMs) : undefined;
+          const signal = deadline && opts.signal ? AbortSignal.any([opts.signal, deadline]) : deadline ?? opts.signal;
           try {
             const r = await provider.chat({ model: target.model, messages, maxTokens: outTok,
               ...(opts.tools ? { tools: opts.tools } : {}), ...(opts.toolChoice ? { toolChoice: opts.toolChoice } : {}),
-              ...(opts.jsonMode ? { jsonMode: true } : {}), ...(opts.signal ? { signal: opts.signal } : {}) });
+              ...(opts.jsonMode ? { jsonMode: true } : {}), ...(opts.sessionId ? { sessionId: opts.sessionId } : {}), ...(signal ? { signal } : {}) });
             const actual = r.usage.costUsd ?? cost(target, r.usage.inputTokens, r.usage.outputTokens);
             await this.#budget.settle(opts.scope, est, actual);
             br.success();
@@ -175,6 +180,7 @@ export class ModelRouter {
     const tool: ToolSpec = { name, description: opts.description ?? "Return the structured result.", parameters: z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown> };
     let msgs = messages;
     let last: RoutedResult | undefined;
+    let why = "";
     for (let round = 0; round < 2; round++) {
       last = await this.chat(tier, msgs, { ...opts, tools: [tool], toolChoice: name });
       const raw = last.toolCalls.find((c) => c.name === name)?.arguments ?? last.content ?? "";
@@ -186,9 +192,10 @@ export class ModelRouter {
       }
       const r = schema.safeParse(parsed);
       if (r.success) return { data: r.data, result: last };
+      why = `${r.error.issues.slice(0, 3).map((i) => `${i.path.join(".") || "<root>"}: ${i.message}`).join("; ")}`;
       msgs = [...messages, { role: "user", content: `Your previous ${name} call was invalid: ${r.error.issues.slice(0, 5).map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}. Call ${name} again with valid arguments.` }];
     }
-    throw new Error(`structured output failed validation after repair (${last?.provider}/${last?.model})`);
+    throw new Error(`structured output failed validation after repair (${last?.provider}/${last?.model}): ${why.slice(0, 300)}`);
   }
 
   async embed(input: string[], opts: { scope: BudgetScope; signal?: AbortSignal }): Promise<{ vectors: number[][]; model: string; dimensions: number; costUsd: number }> {

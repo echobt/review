@@ -1,4 +1,5 @@
-import { hashEmbeddings } from "@review/models";
+import { availableParallelism } from "node:os";
+import { createLimiter, hashEmbeddings } from "@review/models";
 import type { GrepHit, GrepOptions, RepoSource } from "./indexer.ts";
 import { acceptPath, MAX_FILE_BYTES } from "./indexer.ts";
 import { detectLanguage, parseSource, type Entity, type ParsedFile } from "./parse.ts";
@@ -61,45 +62,106 @@ export function bm25(docs: string[], terms: string[]): number[] {
 const cosine = (a: number[], b: number[]) => a.reduce((s, x, i) => s + x * b[i]!, 0);
 
 /**
+ * Content-addressed cache shared by every commit view of a repository: file text keyed by blob SHA, parse trees keyed by
+ * (path, blob SHA) because fqNames embed the path. An unchanged blob is read and parsed once, whatever PR touches it.
+ * Bounded LRU (LATENCY-PLAN H8: unbounded per-commit maps caused the heap OOM).
+ */
+export class BlobCache {
+  readonly #maxBytes: number;
+  readonly #entries = new Map<string, { v: Promise<unknown>; bytes: number }>();
+  #bytes = 0;
+  stats = { textHits: 0, textMisses: 0, parseHits: 0, parseMisses: 0, evictions: 0 };
+  /** Bounded by estimated bytes (review R4: an entry-count bound let the heap reach 3 GB); least recently used goes first. */
+  constructor(maxBytes = 256 << 20) { this.#maxBytes = maxBytes; }
+
+  #get<V>(key: string, load: () => Promise<{ value: V; bytes: number }>, hit: "textHits" | "parseHits"): Promise<V> {
+    const e = this.#entries.get(key);
+    if (e) { this.#entries.delete(key); this.#entries.set(key, e); this.stats[hit]++; return e.v as Promise<V>; }
+    this.stats[hit === "textHits" ? "textMisses" : "parseMisses"]++;
+    const loaded = load();
+    const entry = { v: loaded.then((r) => r.value), bytes: 0 };
+    this.#entries.set(key, entry);
+    loaded.then((r) => {
+      if (this.#entries.get(key) !== entry) return;
+      entry.bytes = r.bytes; this.#bytes += r.bytes;
+      for (const [k, x] of this.#entries) {
+        if (this.#bytes <= this.#maxBytes) break;
+        if (k === key || !x.bytes) continue;
+        this.#entries.delete(k); this.#bytes -= x.bytes; this.stats.evictions++;
+      }
+    }, () => { if (this.#entries.get(key) === entry) this.#entries.delete(key); });
+    return entry.v;
+  }
+  text(blobSha: string, load: () => Promise<string | undefined>) {
+    return this.#get(`t\0${blobSha}`, async () => { const t = await load(); return { value: t, bytes: (t?.length ?? 0) * 2 }; }, "textHits");
+  }
+  /** A parse tree is weighed at PARSE_WEIGHT x its source size: tree-sitter entities, edges and node text dwarf the source. */
+  parsed(path: string, blobSha: string, load: () => Promise<{ parsed: ParsedFile | undefined; sourceChars: number }>) {
+    return this.#get(`p\0${path}\0${blobSha}`, async () => { const r = await load(); return { value: r.parsed, bytes: r.parsed ? r.sourceChars * 2 * PARSE_WEIGHT : 0 }; }, "parseHits");
+  }
+  has(path: string, blobSha: string) { return this.#entries.has(`p\0${path}\0${blobSha}`); }
+  get size() { return { entries: this.#entries.size, bytes: this.#bytes }; }
+}
+const PARSE_WEIGHT = 8;
+
+/**
  * In-process index over a RepoSource at one commit. Lazy: nothing is read until asked; grep narrows candidates and
- * tree-sitter confirms definitions. ponytail: no SCIP here; ScipIndex (scip.ts) overlays precise definitions when a SCIP dump exists.
+ * tree-sitter confirms definitions. Pass a shared BlobCache to reuse reads/parses across commits (standing index).
+ * ponytail: no SCIP here; ScipIndex (scip.ts) overlays precise definitions when a SCIP dump exists.
  */
 export class LocalCodeIndex implements CodeIndex {
   readonly commitSha: string;
   readonly #src: RepoSource;
   #files?: Promise<Map<string, string>>;
-  readonly #text = new Map<string, Promise<string | undefined>>();
-  readonly #parsed = new Map<string, Promise<ParsedFile | undefined>>();
+  readonly #cache: BlobCache;
 
-  constructor(source: RepoSource, commitSha: string) { this.#src = source; this.commitSha = commitSha; }
+  constructor(source: RepoSource, commitSha: string, opts: { cache?: BlobCache; files?: Promise<Map<string, string>> } = {}) {
+    this.#src = source; this.commitSha = commitSha; this.#cache = opts.cache ?? new BlobCache();
+    if (opts.files) this.#files = opts.files;
+  }
 
   #tree() {
     return this.#files ??= this.#src.listFiles(this.commitSha).then((fs) => new Map(fs.filter((f) => acceptPath(f.path) && (f.size ?? 0) <= MAX_FILE_BYTES).map((f) => [f.path, f.blobSha])));
   }
   async paths() { return [...(await this.#tree()).keys()]; }
 
-  readFile(path: string) {
-    let p = this.#text.get(path);
-    if (!p) {
-      p = this.#tree().then(async (t) => {
-        const sha = t.get(path);
-        if (!sha) return undefined;
-        const b = await this.#src.readBlob(sha);
-        return b.subarray(0, 8000).includes(0) ? undefined : b.toString("utf8");
-      });
-      this.#text.set(path, p);
-    }
-    return p;
+  async readFile(path: string) {
+    const sha = (await this.#tree()).get(path);
+    if (!sha) return undefined;
+    return this.#cache.text(sha, async () => {
+      const b = await this.#src.readBlob(sha);
+      return b.subarray(0, 8000).includes(0) ? undefined : b.toString("utf8");
+    });
   }
 
-  parse(path: string) {
-    let p = this.#parsed.get(path);
-    if (!p) { p = this.readFile(path).then((t) => (t === undefined ? undefined : parseSource(path, t))); this.#parsed.set(path, p); }
-    return p;
+  async parse(path: string) {
+    const sha = (await this.#tree()).get(path);
+    if (!sha) return undefined;
+    return this.#cache.parsed(path, sha, async () => {
+      const t = await this.readFile(path);
+      return { parsed: t === undefined ? undefined : await parseSource(path, t), sourceChars: t?.length ?? 0 };
+    });
   }
+
+  /**
+   * Whole-repo greps are the dominant tool cost: agents repeat lookups (87 get_definition calls for 23 symbols on one Sentry PR)
+   * and up to 30 ran at once on 4 cores. Results are memoized per commit and concurrent git greps are capped.
+   */
+  readonly #grepMemo = new Map<string, Promise<GrepHit[]>>();
+  readonly #grepLimit = createLimiter(Math.max(2, availableParallelism()));
 
   async grep(pattern: string, opts: GrepOptions = {}): Promise<GrepHit[]> {
-    if (this.#src.grep) return (await this.#src.grep(this.commitSha, pattern, opts)).filter((h) => acceptPath(h.path));
+    if (this.#src.grep) {
+      const key = JSON.stringify([pattern, opts.ignoreCase ?? false, opts.maxHits ?? 0, opts.globs ?? []]);
+      let p = this.#grepMemo.get(key);
+      if (!p) {
+        p = this.#grepLimit(() => this.#src.grep!(this.commitSha, pattern, opts)).then((hs) => hs.filter((h) => acceptPath(h.path)));
+        this.#grepMemo.set(key, p);
+        p.catch(() => this.#grepMemo.delete(key));
+        if (this.#grepMemo.size > 2000) this.#grepMemo.delete(this.#grepMemo.keys().next().value!);
+      }
+      return p;
+    }
     const re = new RegExp(pattern.replace(/\[\[:space:\]\]/g, "\\s"), opts.ignoreCase ? "i" : "");
     const hits: GrepHit[] = [];
     const exts = (opts.globs ?? []).map((g) => g.replace(/^\*+/, ""));
