@@ -1,4 +1,5 @@
-import { hashEmbeddings } from "@review/models";
+import { availableParallelism } from "node:os";
+import { createLimiter, hashEmbeddings } from "@review/models";
 import type { GrepHit, GrepOptions, RepoSource } from "./indexer.ts";
 import { acceptPath, MAX_FILE_BYTES } from "./indexer.ts";
 import { detectLanguage, parseSource, type Entity, type ParsedFile } from "./parse.ts";
@@ -142,8 +143,25 @@ export class LocalCodeIndex implements CodeIndex {
     });
   }
 
+  /**
+   * Whole-repo greps are the dominant tool cost: agents repeat lookups (87 get_definition calls for 23 symbols on one Sentry PR)
+   * and up to 30 ran at once on 4 cores. Results are memoized per commit and concurrent git greps are capped.
+   */
+  readonly #grepMemo = new Map<string, Promise<GrepHit[]>>();
+  readonly #grepLimit = createLimiter(Math.max(2, availableParallelism()));
+
   async grep(pattern: string, opts: GrepOptions = {}): Promise<GrepHit[]> {
-    if (this.#src.grep) return (await this.#src.grep(this.commitSha, pattern, opts)).filter((h) => acceptPath(h.path));
+    if (this.#src.grep) {
+      const key = JSON.stringify([pattern, opts.ignoreCase ?? false, opts.maxHits ?? 0, opts.globs ?? []]);
+      let p = this.#grepMemo.get(key);
+      if (!p) {
+        p = this.#grepLimit(() => this.#src.grep!(this.commitSha, pattern, opts)).then((hs) => hs.filter((h) => acceptPath(h.path)));
+        this.#grepMemo.set(key, p);
+        p.catch(() => this.#grepMemo.delete(key));
+        if (this.#grepMemo.size > 2000) this.#grepMemo.delete(this.#grepMemo.keys().next().value!);
+      }
+      return p;
+    }
     const re = new RegExp(pattern.replace(/\[\[:space:\]\]/g, "\\s"), opts.ignoreCase ? "i" : "");
     const hits: GrepHit[] = [];
     const exts = (opts.globs ?? []).map((g) => g.replace(/^\*+/, ""));

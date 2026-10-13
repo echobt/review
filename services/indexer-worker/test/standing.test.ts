@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { BlobCache, StandingIndex, gitRepoSource, memoryRepoSource } from "../src/index.ts";
+import { BlobCache, LocalCodeIndex, StandingIndex, gitRepoSource, memoryRepoSource, type GrepOptions } from "../src/index.ts";
+import { availableParallelism } from "node:os";
 import { execFile } from "node:child_process";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -81,4 +82,21 @@ test("git grep is streamed and truncated at maxHits instead of failing on huge o
   expect(hits).toHaveLength(100);
   expect(hits[0]).toMatchObject({ path: "big.py", line: 1 });
   expect(await gitRepoSource(dir).grep!(sha, "no_such_token_here")).toEqual([]);
+});
+
+test("whole-repo grep is memoized per commit and bounded in concurrency", async () => {
+  let calls = 0, active = 0, peak = 0;
+  const base = memoryRepoSource({ c1: { "a.py": "def get_cursor():\n  pass\n" } });
+  const src = { ...base, grep: async (_sha: string, p: string, _o?: GrepOptions) => {
+    calls++; active++; peak = Math.max(peak, active);
+    await new Promise<void>((r) => setImmediate(r));
+    active--;
+    return "def get_cursor():\n  pass".split("\n").flatMap((text, i) => (new RegExp(p).test(text) ? [{ path: "a.py", line: i + 1, text }] : []));
+  } };
+  const ix = new LocalCodeIndex(src, "c1");
+  const runs = await Promise.all(Array.from({ length: 40 }, (_, i) => ix.grep(i % 2 ? "get_cursor" : "pass")));
+  expect(calls).toBe(2);
+  expect(runs[1]).toEqual([{ path: "a.py", line: 1, text: "def get_cursor():" }]);
+  await Promise.all(Array.from({ length: 40 }, (_, i) => ix.grep(`p${i}`)));
+  expect(peak).toBeLessThanOrEqual(Math.max(2, availableParallelism()));
 });
